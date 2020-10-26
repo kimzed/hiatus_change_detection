@@ -14,12 +14,19 @@ from fiona.crs import from_epsg
 from rasterio.mask import mask
 import torch
 import mock
+from sklearn.model_selection import train_test_split
+from torch.utils.data import Subset
 
 import imageio
 
+os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
+
 # importing our functions
-os.chdir("/home/adminlocal/Bureau/project_hiatus")
 import functions as fun
+
+# changing working directory
+os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection/data/tifs")
+
 
 """
 
@@ -56,7 +63,7 @@ list_tifs = [name for name in list_files if name[-3:] == "tif"]
 list_tifs.sort(reverse=True)
 
 # storing our rasters per year in a dictionary
-dict_rasters = {"1966":[]}
+dict_rasters = {"1954":[], "1966":[], "1970":[], "1978":[], "1989":[]}
 
 for rast_file in list_tifs:
     for year in dict_rasters:
@@ -101,6 +108,8 @@ while minx <= glob_maxx:
 rasters_clipped = {}
 
 for year in dict_rasters:
+    
+    # creating our year index for the adversarial part
     rasters_clipped[year] = []
     
 for our_box in boxes:
@@ -129,7 +138,9 @@ for our_box in boxes:
             
             except:
                 None
-                
+    
+    # we now have two * nb years rasters in the list
+    # we set a condition to be sure that we have altitude and radiometry for all years
     if len(rasters_box) != len(dict_rasters)*2:
         continue
     
@@ -139,6 +150,7 @@ for our_box in boxes:
         
         for year in dict_rasters:
             
+            # appending the rasters into a year index
             rasters_clipped[year].append([rasters_box[i], rasters_box[i+1]])
             i += 2
     
@@ -179,6 +191,38 @@ for year in rasters_clipped:
     # stacking up into a dictionary
     s_rasters_clipped[year] = [np.stack((alt, rad), axis=0) for alt, rad in zip(alt_rasts, rad_rasts)]
     
+# we add the year vector and stack it up
+# index for the vector
+i = 0
+
+# creating the ground truth
+gt = []
+
+for year in s_rasters_clipped:
+    
+    # number of samples per year
+    m = len(s_rasters_clipped[year])
+    
+    # creating the vector for the year (labels for adversarial network)
+    year_vect = np.zeros(len(s_rasters_clipped))
+    year_vect[i] = 1
+    i += 1
+    
+    # 
+    gt_year = year_vect.copy()
+    
+    # stacking up the values to have a (m, 5) dimensions gt
+    for ind in range(m-1):
+        gt_year = np.row_stack([gt_year, year_vect.copy()])
+    
+    # adding up to the gt list
+    gt.append(gt_year)
+    
+# stacking up the result and making a list with len=m
+gt = np.stack(gt)
+gt = gt.reshape(gt.shape[0]*gt.shape[1], gt.shape[2])
+gt = list(gt)
+    
 # visualizing some cases
 for i in range(5):
     for year in s_rasters_clipped:
@@ -191,15 +235,48 @@ we now build our dataset as a list of tensors
 
 """
 
+
+# stacking up the  samples into a list
+m_samples = []
+
+for year in s_rasters_clipped:
+    
+    m_samples += s_rasters_clipped[year]
+
+def train_val_dataset(dataset, gt, val_split=0.25):
+    """
+    param: list of rasters as numpy objects and percentage of test data
+    fun: outputs a dictionary with training and test data
+    """
+    
+    # getting ids for training and validation sets
+    train_idx, val_idx = train_test_split(list(range(len(dataset))), test_size=val_split)
+    
+    # subsetting into training and validation, storing into a dictionary
+    datasets = {}
+    datasets['train'] = Subset(dataset, train_idx)
+    datasets['val'] = Subset(dataset, val_idx)
+    
+    # subsetting the groundtruth for the adversarial part
+    datasets['gt_train'] = Subset(gt, train_idx)
+    datasets['gt_val'] = Subset(gt, val_idx)
+    
+    return datasets
+
 # loading the torch data without batch
-datasets = fun.train_val_dataset(s_rasters_clipped["1966"])
+datasets = train_val_dataset(m_samples, gt)
 
-# extracting evals
+# extracting evals, converting into pytorch tensors
 datasets["val"] = [torch.from_numpy(obs) for obs in datasets["val"]]
+datasets["gt_val"] = [torch.from_numpy(obs) for obs in datasets["gt_val"]]
 
-# extracting only images for the training
+# extracting only images for the training, converting into tensors
 datasets["train"] = [torch.from_numpy(obs) for obs in datasets["train"]]
+datasets["gt_train"] = [torch.from_numpy(obs) for obs in datasets["gt_train"]]
+
+# merging val and train because we want more samples
 datasets["train"] = datasets["train"] + datasets["val"]
+datasets["gt_train"] = datasets["gt_train"] + datasets["gt_val"]
 
 # adding number of sample
 n_train = len(datasets["train"])

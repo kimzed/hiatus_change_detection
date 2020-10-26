@@ -8,13 +8,13 @@ import json
 from scipy.interpolate import RegularGridInterpolator
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
-from torch.utils.data import Subset
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import math
 from sklearn.decomposition import PCA
+# this is used for the visualize function
+from mpl_toolkits.mplot3d import Axes3D
 
 def getFeatures(gdf):
     """
@@ -95,23 +95,6 @@ def visualize(raster, third_dim=True):
         
         plt.show()
         
-        
-def train_val_dataset(dataset, val_split=0.25):
-    """
-    param: list of rasters as numpy objects and percentage of test data
-    fun: outputs a dictionary with training and test data
-    """
-    
-    # getting ids for training and validation sets
-    train_idx, val_idx = train_test_split(list(range(len(dataset))), test_size=val_split)
-    
-    # subsetting into training and validation, storing into a dictionary
-    datasets = {}
-    datasets['train'] = Subset(dataset, train_idx)
-    datasets['val'] = Subset(dataset, val_idx)
-    
-    return datasets
-
 
 class SegNet(nn.Module):
   """
@@ -379,7 +362,7 @@ def view_embeddings(fmap, ax = None):
     plt.axis('off')
   
 
-def view_u(train, tile_index = None, trained_model):
+def view_u(train, trained_model, tile_index = None):
     """
     param: datasets, index of the raster, AE model
     fun: runs the model on the data and visualize various embeddings inside

@@ -6,7 +6,6 @@
 # loading required packages
 import numpy as np
 import rasterio
-from rasterio.plot import show
 import os
 from shapely.geometry import box
 import geopandas as gpd
@@ -16,6 +15,9 @@ import torch
 import mock
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Subset
+from torchvision import transforms
+import random
+import matplotlib.pyplot as plt
 
 import imageio
 
@@ -23,6 +25,7 @@ os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 
 # importing our functions
 import functions as fun
+import model as mod
 
 # changing working directory
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection/data/tifs")
@@ -82,6 +85,9 @@ for rast_file in list_tifs:
 boxes = []
 minx = glob_minx
 miny = glob_miny
+
+# to avoid the sea
+glob_miny = 6265642
 
 ## generating the bounding boxes
 while minx <= glob_maxx:
@@ -153,8 +159,31 @@ for our_box in boxes:
             # appending the rasters into a year index
             rasters_clipped[year].append([rasters_box[i], rasters_box[i+1]])
             i += 2
+            
+
+"""
+
+Making an histogram of the data, ignoring zero values
+
+"""
+
+for year in rasters_clipped:
     
+    # extracting alt and rad
+    alt_rasts = [rast[0] for rast in rasters_clipped[year]]
+    rad_rasts = [rast[1] for rast in rasters_clipped[year]]
     
+    # getting the total of rasters
+    total_rasters_alt = np.stack(alt_rasts, axis=0)
+    total_rasters_rad = np.stack(rad_rasts, axis=0)
+    
+    fig, data = plt.subplots()
+    data = plt.hist(total_rasters_rad.flatten(), bins='auto', label='radiometry')
+    data = plt.hist(total_rasters_alt.flatten(), bins='auto', label='altitude')
+    plt.legend(loc='upper right')
+    plt.title("Histogram for year " + year)
+    plt.show()
+
 """
 
 We now stack up the rasters into 2*128*128 dimension rasters and normalize them
@@ -168,29 +197,42 @@ s_rasters_clipped = {}
 
 for year in rasters_clipped:
     
-    # stacking up along a new axis
-    s_rasters_clipped[year] = [np.stack(rast) for rast in rasters_clipped[year]]
-    
     # extracting alt and rad
     alt_rasts = [rast[0] for rast in rasters_clipped[year]]
     rad_rasts = [rast[1] for rast in rasters_clipped[year]]
+    
+    # subtracting min from alt rasters
+    alt_rasts = [rast - np.min(rast) for rast in alt_rasts]
+    
+    # getting the total of rasters
     total_rasters_alt = np.stack(alt_rasts, axis=0)
     total_rasters_rad = np.stack(rad_rasts, axis=0)
     
     # getting stat values
-    mu_alt = total_rasters_alt.mean()
-    std_alt = total_rasters_alt.std()
-    mu_rad = total_rasters_rad.mean()
-    std_rad = total_rasters_rad.std()
+    mu_alt = np.mean(total_rasters_alt)
+    std_alt = np.std(total_rasters_alt)
+    mu_rad = np.mean(total_rasters_rad)
+    std_rad = np.std(total_rasters_alt)
     
     # normalizing
-    alt_rasts = [rast - rast.min() for rast in alt_rasts]
-    alt_rasts = [(rast-mu_alt)/std_alt for rast in alt_rasts]
-    rad_rasts = [(rast-mu_rad)/std_rad for rast in rad_rasts]
+    for i in range(len(alt_rasts)):
+        
+        # boolean of non zeros
+        non_zero_alt = np.nonzero(alt_rasts[i])
+        non_zero_rad = np.nonzero(rad_rasts[i])
+        
+        # normalizing
+        alt_rasts[i][non_zero_alt] = (alt_rasts[i][non_zero_alt] - alt_rasts[i][non_zero_alt].mean()) / alt_rasts[i][non_zero_alt].std() + 10
+        rad_rasts[i][non_zero_rad] = (rad_rasts[i][non_zero_rad] - rad_rasts[i][non_zero_rad].mean()) / rad_rasts[i][non_zero_rad].std() + 10
+                    
+                    
+    #alt_rasts = [(rast-np.min(rast[np.nonzero(rast)])) / (np.max(rast[np.nonzero(rast)])-np.min(rast[np.nonzero(rast)])) for rast in alt_rasts]
+    #rad_rasts = [(rast-np.min(rast[np.nonzero(rast)])) / (np.max(rast[np.nonzero(rast)])-np.min(rast[np.nonzero(rast)])) for rast in rad_rasts]
+    
     
     # stacking up into a dictionary
     s_rasters_clipped[year] = [np.stack((alt, rad), axis=0) for alt, rad in zip(alt_rasts, rad_rasts)]
-    
+
 # we add the year vector and stack it up
 # index for the vector
 i = 0
@@ -224,17 +266,18 @@ gt = gt.reshape(gt.shape[0]*gt.shape[1], gt.shape[2])
 gt = list(gt)
     
 # visualizing some cases
-for i in range(5):
+for i in range(5, 6):
+    print(i)
     for year in s_rasters_clipped:
-        fun.visualize(s_rasters_clipped[year][i])
+        fun.visualize(s_rasters_clipped[year][i].squeeze(), third_dim=False)
      
+
 ### building the dataset
 """
 
 we now build our dataset as a list of tensors
 
 """
-
 
 # stacking up the  samples into a list
 m_samples = []
@@ -278,6 +321,12 @@ datasets["gt_train"] = [torch.from_numpy(obs) for obs in datasets["gt_train"]]
 datasets["train"] = datasets["train"] + datasets["val"]
 datasets["gt_train"] = datasets["gt_train"] + datasets["gt_val"]
 
+## we need to combine images and labels for the discriminator
+train_data = []
+
+for i in range(len(datasets["train"])):
+   train_data.append([datasets["train"][i], datasets["gt_train"][i]])
+
 # adding number of sample
 n_train = len(datasets["train"])
 
@@ -289,42 +338,65 @@ the model is made in the functions file
 
 """
 
-#stores the parameters
-args = mock.Mock() 
-args.n_epoch = 10
-args.batch_size = 64
-args.n_channel = 1
-args.conv_width = [16,16,32,32,64,32]
-args.dconv_width = [32,16,32,16]
-args.cuda = 1
-args.lr = 0.005
-trained_model = fun.train_full(args, datasets)
+## loading the model in case we have it already
+load_model = True
+
+if load_model == True:
+    args = mock.Mock() 
+    args.n_channel = 1
+    args.conv_width = [16,16,32,32,64,32]
+    args.dconv_width = [32,16,32,16]
+    trained_model = mod.SegNet(args.n_channel, args.conv_width, args.dconv_width)
+    trained_model.load_state_dict(torch.load("models/AE_D_model"))
+    trained_model.eval()
+
+# otherwise, train it
+else:
+    #stores the parameters
+    args = mock.Mock() 
+    args.n_epoch = 100
+    args.batch_size = 32
+    args.n_channel = 1
+    args.conv_width = [16,16,32,32,64,32]
+    args.dconv_width = [32,16,32,16]
+    args.cuda = 1
+    args.lr = 0.002
+    trained_model, trained_discr = mod.train_full(args, train_data)
+
+## saving the model
+save_model = False
+
+# saving the model
+if save_model == True:
+    torch.save(trained_model.state_dict(), "models/AE_D_model")
+
 
 ## visualizing the result
-for i in range(1):
+for i in range(60, 61):
     
     # visualizing training raster
     raster = datasets["train"][i]
-    fun.visualize(raster)
+    fun.visualize(raster, third_dim=False)
     
     # visualizing prediction
-    pred = trained_model(raster[None,:,:,:].float().cuda()).cpu()
-    fun.visualize(pred.detach().numpy().squeeze())
+    pred = trained_model(raster[None,:,:,:].float().cuda())[0].cpu()
+    fun.visualize(pred.detach().numpy().squeeze(), third_dim=False)
     
 ### view the embeddings in the model
 '''
+
 Now we are going to visualize various embeddings in the model itself
+
 '''
 
 # visualizing embedding inside the model
-fun.view_u(datasets["train"], 8, trained_model)
+fun.view_u(datasets["train"], trained_model, random.randint(0, 900))
 
 """
 
 Performing change detection analysis on manually modified data
 
 """
-
 
 ### working on data manipulation to test the model
 imageio.imwrite('house.jpg', s_rasters_clipped["1966"][12][1,:,:])
@@ -365,16 +437,40 @@ field_house_raw = np.stack((field_house_alt, field_house_raw), axis=0)
 ## running cd model
 rast1 = field_raw[None,:,:,:]
 rast2 = field_house_raw[None,:,:,:]
-threshold = 1.2
+threshold = 3
 
 # computing change raster
-cd_rast, dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model, threshold)
+dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model, threshold)
 
 # visualizing result
 fun.visualize(rast1[:,:,:].squeeze(), third_dim = False)
 fun.visualize(rast2[:,:,:].squeeze(), third_dim = False)
-show((cd_rast.squeeze().cpu()[1,:,:]> 0).float())
-show(cd_rast.squeeze().cpu()[1,:,:])   
 fun.view_embeddings(dccode)
 
+"""
+
+Performing change detection analysis on actual data
+
+"""
+ind = random.randint(0, 1500)
+
+## running cd model
+rast1 = s_rasters_clipped["1966"][531][None,:,:,:]
+rast2 = s_rasters_clipped["1970"][531][None,:,:,:]
+
+ind = random.randint(0, 900)
+
+fun.visualize(s_rasters_clipped["1954"][898][:,:,:], third_dim=False)
+fun.visualize(s_rasters_clipped["1966"][898][:,:,:], third_dim=False)
+
+    
+threshold = 3
+
+# computing change raster
+dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model, threshold)
+
+# visualizing result
+fun.visualize(rast1[:,:,:].squeeze(), third_dim = False)
+fun.visualize(rast2[:,:,:].squeeze(), third_dim = False)
+fun.view_embeddings(dccode)
 

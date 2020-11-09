@@ -10,6 +10,7 @@ import torch.optim as optim
 import math
 import torch.nn.functional as F
 import torchnet as tnt
+import numpy as np
 
 class SegNet(nn.Module):
   """
@@ -34,34 +35,37 @@ class SegNet(nn.Module):
     
     self.maxpool=nn.MaxPool2d(2,2,return_indices=True) #maxpooling layer
     
+    # softplus for the defiance
+    self.sfplus=nn.Softplus()
+    
     #encoder
     #usage:
     #nn.Conv2d(depth_of_input, depth_of_output,size_of_kernel (3),padding=1, padding_mode='reflection')
     #nn.BatchNorm2d(depth_of_layer)
     # n_channels is the number of channels from the input
-    self.c1 = nn.Sequential(nn.Conv2d(n_channels, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
-    self.c2 = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
-    self.c3 = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.LeakyReLU(True))
-    self.c4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
-    self.c5 = nn.Sequential(nn.Conv2d(encoder_conv_width[3],encoder_conv_width[4],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[4]),nn.LeakyReLU(True))
-    self.c6 = nn.Sequential(nn.Conv2d(encoder_conv_width[4],encoder_conv_width[5],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[5]),nn.LeakyReLU(True))
+    self.c1 = nn.Sequential(nn.Conv2d(n_channels, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.ReLU(True))
+    self.c2 = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.ReLU(True))
+    self.c3 = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.ReLU(True))
+    self.c4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.ReLU(True))
+    self.c5 = nn.Sequential(nn.Conv2d(encoder_conv_width[3],encoder_conv_width[4],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[4]),nn.ReLU(True))
+    self.c6 = nn.Sequential(nn.Conv2d(encoder_conv_width[4],encoder_conv_width[5],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[5]),nn.ReLU(True))
     #decoder
     # the extra width is added because of concatenation ?
-    self.t1 = nn.Sequential(nn.ConvTranspose2d(encoder_conv_width[5], encoder_conv_width[5], 2, 2), nn.BatchNorm2d(encoder_conv_width[5]),nn.Relu(True))
-    self.c7 = nn.Sequential(nn.Conv2d(encoder_conv_width[5],decoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[0]),nn.Relu(True))
-    self.c8 = nn.Sequential(nn.Conv2d(decoder_conv_width[0],decoder_conv_width[1],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[1]),nn.Relu(True))
-    self.t2 = nn.Sequential(nn.ConvTranspose2d(decoder_conv_width[1], decoder_conv_width[1], 2, 2), nn.BatchNorm2d(decoder_conv_width[1]),nn.Relu(True))
-    self.c9 = nn.Sequential(nn.Conv2d(decoder_conv_width[1],decoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[2]),nn.Relu(True))
-    self.c10 = nn.Sequential(nn.Conv2d(decoder_conv_width[2],decoder_conv_width[3],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[3]),nn.Dropout(0.7), nn.Relu(True)) 
+    self.t1 = nn.Sequential(nn.ConvTranspose2d(encoder_conv_width[5], encoder_conv_width[5], 2, 2), nn.BatchNorm2d(encoder_conv_width[5]),nn.ReLU(True))
+    self.c7 = nn.Sequential(nn.Conv2d(encoder_conv_width[5],decoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[0]),nn.ReLU(True))
+    self.c8 = nn.Sequential(nn.Conv2d(decoder_conv_width[0],decoder_conv_width[1],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[1]),nn.ReLU(True))
+    self.t2 = nn.Sequential(nn.ConvTranspose2d(decoder_conv_width[1], decoder_conv_width[1], 2, 2), nn.BatchNorm2d(decoder_conv_width[1]),nn.ReLU(True))
+    self.c9 = nn.Sequential(nn.Conv2d(decoder_conv_width[1],decoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[2]),nn.ReLU(True))
+    self.c10 = nn.Sequential(nn.Conv2d(decoder_conv_width[2],decoder_conv_width[3],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[3]), nn.ReLU(True)) 
     
     # network for the altitude
-    self.a1 = nn.Sequential(nn.Conv2d(n_channels, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.Relu(True))
-    self.a2 = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.Relu(True))
-    self.a3 = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.Relu(True))
-    self.a4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.Relu(True))
+    self.a1 = nn.Sequential(nn.Conv2d(n_channels, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.ReLU(True))
+    self.a2 = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.ReLU(True))
+    self.a3 = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.ReLU(True))
+    self.a4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.ReLU(True))
     
     #final  layer
-    self.final = nn.Conv2d(decoder_conv_width[3],2,3,padding=1, padding_mode='reflect')
+    self.final = nn.Conv2d(decoder_conv_width[3],4,3,padding=1, padding_mode='reflect')
 
     #weight initialization
 
@@ -89,7 +93,8 @@ class SegNet(nn.Module):
     self.cuda()
     
   def init_weights(self,layer): #gaussian init for the conv layers
-    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+    #nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity="leaky_relu")
+    nn.init.normal_(layer.weight, mean=5, std=3)
     
   def forward(self,input):
     """
@@ -123,8 +128,9 @@ class SegNet(nn.Module):
     #level 1       
     y2 = self.t2(y3)
     y1 = self.c10(self.c9(y2))
-    out = self.final(y1)
-
+    y = self.final(y1)
+    out = torch.cat((y[:,0:2,:,:], self.sfplus(y[:,None,2,:,:]), self.sfplus(y[:,None,3,:,:])), 1)
+    
     return out, x5
 
 
@@ -147,17 +153,17 @@ class Discriminator(nn.Module):
     
     self.maxpool=nn.MaxPool2d(2,2)
     
-    # 
-    self.fc1 = nn.Sequential(nn.Conv2d(32, 16, 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
-    self.fc2 = nn.Sequential(nn.Conv2d(16, 8, 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(8),nn.ReLU(True))
-    self.fc3 = nn.Sequential(nn.Linear(512, 128),nn.BatchNorm1d(128),nn.ReLU(True))
-    self.fc4 = nn.Linear(128, 5)
-    
+    # here the convolutions don't change the width and height, only the number of channels
+    self.fc1 = nn.Sequential(nn.Conv2d(8, 16, 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
+    self.fc2 = nn.Sequential(nn.Conv2d(16, 16, 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
+    self.fc3 = nn.Sequential(nn.Conv2d(16, 4, 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(4),nn.ReLU(True))
+    self.fc4 = nn.Sequential(nn.Conv2d(4, 5, 1, padding=0, padding_mode='reflect')) #conv (1x1)
+
     # initiating weights
     self.fc1[0].apply(self.init_weights)
     self.fc2[0].apply(self.init_weights)
     self.fc3[0].apply(self.init_weights)
-    self.fc4.apply(self.init_weights)
+    self.fc4[0].apply(self.init_weights)
     
     self.cuda()
     
@@ -170,14 +176,7 @@ class Discriminator(nn.Module):
     #here x is the input
     """
     
-    x1 = self.fc1(x)
-    x2 = self.maxpool(x1)
-    x3 = self.fc2(x2)
-    x4 = self.maxpool(x3)
-    x5 = torch.flatten(x4, 1)
-    x6 = self.fc3(x5)
-    x7 = self.fc4(x6)
-    out = F.log_softmax(x7, dim=1)
+    out = self.fc4(self.fc3(self.fc2(self.fc1(x))))
 
     return out
 
@@ -223,46 +222,53 @@ def train(model, discr, optimizer, optimizer_D, args, datasets):
     pred_rad = pred[:,None,1,:,:][bool_matr_rad]
     tiles_rad = tiles[:,None,1,:,:][bool_matr_rad]
     
+    # loading defiance matrix
+    d_mat_alt = pred[:,None,2,:,:][bool_matr_alt]
+    d_mat_rad = pred[:,None,3,:,:][bool_matr_rad]
+    
     ## sum of squares
-    loss_fun = nn.MSELoss()
-    loss_alt = loss_fun(pred_alt, tiles_alt)
-    loss_rad = loss_fun(pred_rad, tiles_rad)
+    #loss_fun = nn.MSELoss()
+    #loss_alt = loss_fun(tiles_alt, pred_alt)
+    #loss_rad = loss_fun(tiles_rad, pred_rad)
+    loss_alt = torch.mean(torch.abs(tiles_alt - pred_alt) / (2*d_mat_alt**2) + 2*torch.log(d_mat_alt))
+    loss_rad = torch.mean(torch.abs(tiles_rad - pred_rad) / (2*d_mat_rad**2) + 2*torch.log(d_mat_rad))
     
+    # reshaping the labels 
+    list_labels = [labels for i in range(code.shape[-1])]
+    labels = torch.stack(list_labels, dim=-1)
+    list_labels = [labels for i in range(code.shape[-1])]
+    labels = torch.stack(list_labels, dim=-1)
+    _, labels = labels.max(dim=1)
     
-    
-    # cross entropy
-    #loss = nn.functional.binary_cross_entropy(pred[tiles != 0], tiles[tiles != 0])
-    
-    
-    
-    
-    loss_data_alt.add(loss_alt.item())
-    loss_data_rad.add(loss_rad.item())
-    
-    ## now the disciminant part
-    pred_year = discr(code.detach())
-    criterion =  nn.CrossEntropyLoss()
-    
-    # torch max only takes highest probability
-    loss_disc = criterion(pred_year, torch.max(labels, 1)[1])
-    optimizer_D.zero_grad()
-    loss_disc.backward()
-    optimizer_D.step()
-    loss_disc_val.add(loss_disc.item())
-    
-    
+    for i in range(2):
+        ## now the disciminant part
+        pred_year = discr(code.detach())
+        criterion =  nn.CrossEntropyLoss(reduction="none")
+        
+        # applying loss function
+        loss_disc = criterion(pred_year, labels)
+        loss_disc = loss_disc.mean()
+        optimizer_D.zero_grad()
+        loss_disc.backward()
+        optimizer_D.step()
+        loss_disc_val.add(loss_disc.item())
     
     pred_year = discr(model(tiles)[1])
-    loss_disc = criterion(pred_year, torch.max(labels, 1)[1])
+    loss_disc = criterion(pred_year, labels)
+    loss_disc = loss_disc.mean()
     
     # total loss
-    loss = loss_alt + loss_rad - 0.001 * loss_disc
+    loss = loss_alt + loss_rad - 0.8 * loss_disc
     loss_data.add(loss.item())
     
     # ============backward===========
     optimizer.zero_grad()
     loss.backward(retain_graph=True)
     optimizer.step() #one SGD step
+    
+    # storing the loss values
+    loss_data_alt.add(loss_alt.cpu().detach())
+    loss_data_rad.add(loss_rad.cpu().detach())
 
 
     #for p in model.parameters(): #we clip the gradient at norm 1
@@ -271,7 +277,7 @@ def train(model, discr, optimizer, optimizer_D, args, datasets):
   return loss_data.value()[0], len(loader), loss_data_alt.value()[0], loss_data_rad.value()[0], loss_disc_val.value()[0]
 
 
-def train_full(args, datasets):
+def train_full(args, datasets, writer):
   """
   The full training loop
   """
@@ -298,9 +304,9 @@ def train_full(args, datasets):
     #train one epoch
     loss_train, nb_batches, loss_alt, loss_rad, loss_disc = train(model, discr, optimizer, optimizer_D, args, datasets)
     
-    loss = math.sqrt(loss_train / (nb_batches * args.batch_size))
-    loss_alt = math.sqrt(loss_alt / (nb_batches * args.batch_size))
-    loss_rad = math.sqrt(loss_rad / (nb_batches * args.batch_size))
+    loss = loss_train
+    loss_alt = loss_alt
+    loss_rad = loss_rad
     #loss_disc = loss_disc / (nb_batches * args.batch_size)
     
     # storing loss for later plotting
@@ -315,6 +321,25 @@ def train_full(args, datasets):
     print("loss rad is %1.4f" % (loss_rad))
     print("loss discr is %1.4f" % (loss_disc))
     
+    
+    # ...log the running loss
+    writer.add_scalar('training loss',
+                    loss,
+                    i_epoch)
+    
+    writer.add_scalar('altitude loss',
+                    loss_alt,
+                    i_epoch)
+    
+    writer.add_scalar('radiometric loss',
+                    loss_rad,
+                    i_epoch)
+    
+    writer.add_scalar('discriminator loss',
+                    loss_disc,
+                    i_epoch)
+    
+  # graphs of different losses
   plt.title('loss per number of epochs')
   plt.xlabel('epoch')
   plt.ylabel('loss')

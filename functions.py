@@ -93,9 +93,7 @@ def visualize(raster, third_dim=True):
         ax1.scatter3D(xdata, ydata, zdata, c=zdata, cmap='Greens')
         
         plt.show()
-        
-
-
+    
 
 def view_embeddings(fmap, ax = None):
     """
@@ -129,7 +127,7 @@ def view_embeddings(fmap, ax = None):
     ax.imshow(color)
     
     plt.axis('off')
-  
+    
 
 def view_u(train, trained_model, tile_index = None):
     """
@@ -140,8 +138,13 @@ def view_u(train, trained_model, tile_index = None):
     
     # loading the data and reshaping it for prediction
     input = train[tile_index]
-    input = input.view(1, input.shape[0], input.shape[1], input.shape[2]).float().cuda()
+    
+    try:
+        input = input.view(1, input.shape[0], input.shape[1], input.shape[2]).float().cuda()
+    except:
+        input = torch.from_numpy(input[None,:,:,:]).float().cuda()
 
+    
     ## running the model
     # encoder alt
     a1 = trained_model.a2(trained_model.a1(input[:,0,:,:].view(input.shape[0], 1,
@@ -169,17 +172,12 @@ def view_u(train, trained_model, tile_index = None):
     #level 1       
     y2 = trained_model.t2(y3)
     y1 = trained_model.c10(trained_model.c9(y2))
-    #output         
-    out = trained_model.final(y1)
-    print(out.shape)
+    #output        
+    print(input.shape)
     
     # show input
     show(input[:,0,:,:].detach().cpu())
     show(input[:,1,:,:].detach().cpu())
-    
-    # show output
-    show(out[:,0,:,:].detach().cpu())
-    show(out[:,1,:,:].detach().cpu())
     
     # show various embeddings in the model
     fig = plt.figure(figsize=(25, 10)) #adapted dimension

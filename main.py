@@ -21,6 +21,8 @@ import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from osgeo import gdal, ogr
 from shapely.geometry import Polygon
+from numpy import save
+from numpy import load
 
 import imageio
 
@@ -30,359 +32,407 @@ os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 import functions as fun
 import model as mod
 
-# changing working directory
-os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection/data/tifs")
+# loading the rasters
+load_rasters = True
 
-
-"""
-
-We load the bounding box
-
-"""
-
-# change working directory
-os.chdir("/home/adminlocal/Bureau/project_hiatus/data/tifs")
-
-## creating the bounding box for cropping our rasters
-BuildingsGDF = gpd.read_file('bdtopo_bati_1954.shp')
-bbox = BuildingsGDF.total_bounds
+if load_rasters:
     
-# setting a bounding box for cropping
-glob_minx, glob_miny = bbox[0], bbox[1]
-glob_maxx, glob_maxy = bbox[2], bbox[3]
-
-# getting global boundaries in the correct format
-bbox = box(glob_minx, glob_miny, glob_maxx, glob_maxy)
-geo = gpd.GeoDataFrame({'geometry': bbox}, index=[0], crs=from_epsg(2154))
-coords = fun.getFeatures(geo)
-
-"""
-
-Converting the building vector data into a raster (groundtruth)
-
-"""
-
-# Define pixel_size and NoData value of new raster
-pixel_size = 0.5
-NoData_value = 0
-
-# Filename of input OGR file
-vector_fn = 'bdtopo_bati_1954.shp'
-
-# Filename of the raster Tiff that will be created
-raster_fn = 'ground_truth.tif'
-
-# Open the data source and read in the extent
-source_ds = ogr.Open(vector_fn)
-source_layer = source_ds.GetLayer()
-xmin, xmax, ymin, ymax = source_layer.GetExtent()
-
-# Create the destination data source
-x_res = int((xmax - xmin) / pixel_size)
-y_res = int((ymax - ymin) / pixel_size)
-target_ds = gdal.GetDriverByName('GTiff').Create(raster_fn, x_res, y_res, 1, gdal.GDT_Byte)
-
-# adds coordinates to the point and does a transformation
-target_ds.SetGeoTransform((xmin, pixel_size, 0, ymax, 0, -pixel_size))
-
-# get the band and define nodata values
-band = target_ds.GetRasterBand(1)
-band.SetNoDataValue(NoData_value)
-
-# Rasterize
-gdal.RasterizeLayer(target_ds, [1], source_layer, burn_values=[1])
-
-# get the raster as a numpy array
-mask_arr=target_ds.GetRasterBand(1).ReadAsArray()
-
-# updating the tif
-target_ds.FlushCache()
-
-"""
-
-We load the rasters
-Then we sample them into a grid with similar resolution
-
-"""
-
-# list rasters
-list_files = os.listdir()
-list_tifs = [name for name in list_files if name[-3:] == "tif"]
-list_tifs.sort(reverse=True)
-
-# storing our rasters per year in a dictionary
-dict_rasters = {"1954":[], "1966":[], "1970":[], "1978":[], "1989":[]}
-
-for rast_file in list_tifs:
-    for year in dict_rasters:
-        if year in rast_file:
-            try:
-                ortho = rasterio.open(rast_file)
+    """
+    
+    Loading the existing rasters
+    
+    """
+    
+    # changing working directory
+    os.chdir("data/np_data")
+    
+    # list rasters
+    list_files = os.listdir()
+    
+    # sorting the names to have similar order
+    list_files.sort(reverse=True)
+    
+    # storing our rasters per year in a dictionary
+    s_rasters_clipped = {"1954":[], "1966":[], "1970":[], "1978":[], "1989":[]}
+    
+    # loading the files
+    for year in s_rasters_clipped:
+        for file in list_files:
+            if year in file:
+                s_rasters_clipped[year].append(load(file))
                 
-                dict_rasters[year].append(ortho)
-            except:
-                print(rast_file)
-        
-    else:
-        None
-
-# creating a list for our bounding boxes
-boxes = []
-minx = glob_minx
-miny = glob_miny
-
-# to avoid the sea
-glob_miny = 6265642
-
-## generating the bounding boxes
-while minx <= glob_maxx:
+else:
     
-    # reinitializing y
+    # changing working directory
+    os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection/data/tifs")
+    
+    
+    """
+    
+    We load the bounding box
+    
+    """
+    
+    # change working directory
+    os.chdir("/home/adminlocal/Bureau/project_hiatus/data/tifs")
+    
+    ## creating the bounding box for cropping our rasters
+    BuildingsGDF = gpd.read_file('bdtopo_bati_1954.shp')
+    bbox = BuildingsGDF.total_bounds
+        
+    # setting a bounding box for cropping
+    glob_minx, glob_miny = bbox[0], bbox[1]
+    glob_maxx, glob_maxy = bbox[2], bbox[3]
+    
+    # getting global boundaries in the correct format
+    bbox = box(glob_minx, glob_miny, glob_maxx, glob_maxy)
+    geo = gpd.GeoDataFrame({'geometry': bbox}, index=[0], crs=from_epsg(2154))
+    coords = fun.getFeatures(geo)
+    
+    """
+    
+    Converting the building vector data into a raster (groundtruth)
+    
+    """
+    
+    # Define pixel_size and NoData value of new raster
+    pixel_size = 0.5
+    NoData_value = 0
+    
+    # Filename of input OGR file
+    vector_fn = 'bdtopo_bati_1954.shp'
+    
+    # Filename of the raster Tiff that will be created
+    raster_fn = 'ground_truth.tif'
+    
+    # Open the data source and read in the extent
+    source_ds = ogr.Open(vector_fn)
+    source_layer = source_ds.GetLayer()
+    xmin, xmax, ymin, ymax = source_layer.GetExtent()
+    
+    # Create the destination data source
+    x_res = int((xmax - xmin) / pixel_size)
+    y_res = int((ymax - ymin) / pixel_size)
+    target_ds = gdal.GetDriverByName('GTiff').Create(raster_fn, x_res, y_res, 1, gdal.GDT_Byte)
+    
+    # adds coordinates to the point and does a transformation
+    target_ds.SetGeoTransform((xmin, pixel_size, 0, ymax, 0, -pixel_size))
+    
+    # get the band and define nodata values
+    band = target_ds.GetRasterBand(1)
+    band.SetNoDataValue(NoData_value)
+    
+    # Rasterize
+    gdal.RasterizeLayer(target_ds, [1], source_layer, burn_values=[1])
+    
+    # get the raster as a numpy array
+    mask_arr=target_ds.GetRasterBand(1).ReadAsArray()
+    
+    # updating the tif
+    target_ds.FlushCache()
+    
+    """
+    
+    We load the rasters
+    Then we sample them into a grid with similar resolution
+    
+    """
+    
+    # list rasters
+    list_files = os.listdir()
+    list_tifs = [name for name in list_files if name[-3:] == "tif"]
+    list_tifs.sort(reverse=True)
+    
+    # storing our rasters per year in a dictionary
+    dict_rasters = {"1954":[], "1966":[], "1970":[], "1978":[], "1989":[]}
+    
+    for rast_file in list_tifs:
+        for year in dict_rasters:
+            if year in rast_file:
+                try:
+                    ortho = rasterio.open(rast_file)
+                    
+                    dict_rasters[year].append(ortho)
+                except:
+                    print(rast_file)
+            
+        else:
+            None
+    
+    # creating a list for our bounding boxes
+    boxes = []
+    minx = glob_minx
     miny = glob_miny
     
-    while miny <= glob_maxy:
+    # to avoid the sea
+    glob_miny = 6265642
+    
+    ## generating the bounding boxes
+    while minx <= glob_maxx:
         
-        # creating bbox
-        bbox = box(minx, miny, minx+64, miny+64)
-        geo = gpd.GeoDataFrame({'geometry': bbox}, index=[0], crs=from_epsg(2154))
-        coords = fun.getFeatures(geo)
-        boxes.append(coords)
+        # reinitializing y
+        miny = glob_miny
         
-        # updating the box boundaries
-        miny += 64
+        while miny <= glob_maxy:
+            
+            # creating bbox
+            bbox = box(minx, miny, minx+64, miny+64)
+            geo = gpd.GeoDataFrame({'geometry': bbox}, index=[0], crs=from_epsg(2154))
+            coords = fun.getFeatures(geo)
+            boxes.append(coords)
+            
+            # updating the box boundaries
+            miny += 64
+        
+        minx += 64
     
-    minx += 64
-
-
-## clipping our rasters and storing them
-# creating a list of lists
-rasters_clipped = {}
-
-# storing some boxes in a list to get interesting gt later
-
-for year in dict_rasters:
     
-    # creating our year index for the adversarial part
-    rasters_clipped[year] = []
+    ## clipping our rasters and storing them
+    # creating a list of lists
+    rasters_clipped = {}
     
-for our_box in boxes:
-    
-    # list of rasters matching the box
-    rasters_box = []
+    # storing some boxes in a list to get interesting gt later
     
     for year in dict_rasters:
         
-        for rast in dict_rasters[year]:
-            try:
-                # cropping the raster
-                out_img, out_transform = mask(dataset=rast, all_touched=True,
-                                              shapes=our_box, crop=True)
-                
-                # storing the raster in our list
-                # removing rasters with too much zeros
-                values = out_img.flatten()
-                nb_zeroes = np.count_nonzero(values == 0)
-                
-                if nb_zeroes > len(values)/5 :
-                    None
-                else:
-                    resh_rast = fun.regrid(out_img.reshape(out_img.shape[1:]), 128, 128)
-                    rasters_box.append(resh_rast)
-            
-            except:
-                None
-    
-    # we now have two * nb years rasters in the list
-    # we set a condition to be sure that we have altitude and radiometry for all years
-    if len(rasters_box) != len(dict_rasters)*2:
-        continue
-    
-    else: 
-        # storing the raster per year
-        i = 0
+        # creating our year index for the adversarial part
+        rasters_clipped[year] = []
+        
+    for our_box in boxes:
+        
+        # list of rasters matching the box
+        rasters_box = []
         
         for year in dict_rasters:
             
-            # appending the rasters into a year index
-            rasters_clipped[year].append([rasters_box[i], rasters_box[i+1]])
-            i += 2
-
-"""
-
-clipping the vector to get ground truth
-
-"""
-
-
-## clipping the ground truth and putting it into our dictionary
-# creating a new key in the dictionary
-gt_rasters = []
-
-# loading the gt raster
-rast_gt = rasterio.open(raster_fn)
-
-# looping through the patches
-for our_box in boxes:    
-    
-    # cropping
-    out_img, out_transform = mask(dataset=rast_gt, all_touched=True,
-                                              shapes=our_box, crop=True)
-    
-    # storing in the list
-    gt_rasters.append(out_img)
-
-"""
-
-Making an histogram of the data, ignoring zero values
-
-"""
-
-for year in rasters_clipped:
-    
-    # extracting alt and rad
-    alt_rasts = [rast[0] for rast in rasters_clipped[year]]
-    rad_rasts = [rast[1] for rast in rasters_clipped[year]]
-    
-    # getting the total of rasters
-    total_rasters_alt = np.stack(alt_rasts, axis=0)
-    total_rasters_rad = np.stack(rad_rasts, axis=0)
-    
-    fig, data = plt.subplots()
-    data = plt.hist(total_rasters_rad.flatten(), bins='auto', label='radiometry')
-    data = plt.hist(total_rasters_alt.flatten(), bins='auto', label='altitude')
-    plt.legend(loc='upper right')
-    plt.title("Histogram for year " + year)
-    plt.show()
-
-"""
-
-We now stack up the rasters into 2*128*128 dimension rasters and normalize them
-using z-scores and removing minimum altitude for mns
-
-"""
-
-## stacking the result (every raster has two dimensions, color and altitude)
-# normalizing
-s_rasters_clipped = {}
-
-for year in rasters_clipped:
-    
-    # extracting alt and rad
-    alt_rasts = [rast[0] for rast in rasters_clipped[year]]
-    rad_rasts = [rast[1] for rast in rasters_clipped[year]]
-    
-    # subtracting min from alt rasters
-    alt_rasts = [rast - np.min(rast) for rast in alt_rasts]
-    
-    # getting the total of rasters
-    total_rasters_alt = np.stack(alt_rasts, axis=0)
-    total_rasters_rad = np.stack(rad_rasts, axis=0)
-    
-    # getting stat values
-    mu_alt = np.mean(total_rasters_alt)
-    std_alt = np.std(total_rasters_alt)
-    mu_rad = np.mean(total_rasters_rad)
-    std_rad = np.std(total_rasters_alt)
-    
-    # normalizing
-    for i in range(len(alt_rasts)):
+            for rast in dict_rasters[year]:
+                try:
+                    # cropping the raster
+                    out_img, out_transform = mask(dataset=rast, all_touched=True,
+                                                  shapes=our_box, crop=True)
+                    
+                    # storing the raster in our list
+                    # removing rasters with too much zeros
+                    values = out_img.flatten()
+                    nb_zeroes = np.count_nonzero(values == 0)
+                    
+                    if nb_zeroes > len(values)/5 :
+                        None
+                    else:
+                        resh_rast = fun.regrid(out_img.reshape(out_img.shape[1:]), 128, 128)
+                        rasters_box.append(resh_rast)
+                
+                except:
+                    None
         
-        # boolean of non zeros
-        non_zero_alt = np.nonzero(alt_rasts[i])
-        non_zero_rad = np.nonzero(rad_rasts[i])
+        # we now have two * nb years rasters in the list
+        # we set a condition to be sure that we have altitude and radiometry for all years
+        if len(rasters_box) != len(dict_rasters)*2:
+            continue
+        
+        else: 
+            # storing the raster per year
+            i = 0
+            
+            for year in dict_rasters:
+                
+                # appending the rasters into a year index
+                rasters_clipped[year].append([rasters_box[i], rasters_box[i+1]])
+                i += 2
+    
+    """
+    
+    clipping the vector to get ground truth
+    
+    """
+    
+    
+    ## clipping the ground truth and putting it into our dictionary
+    # creating a new key in the dictionary
+    gt_rasters = []
+    
+    # loading the gt raster
+    rast_gt = rasterio.open(raster_fn)
+    
+    # looping through the patches
+    for our_box in boxes:    
+        
+        # cropping
+        out_img, out_transform = mask(dataset=rast_gt, all_touched=True,
+                                                  shapes=our_box, crop=True)
+        
+        # storing in the list
+        gt_rasters.append(out_img)
+    
+    """
+    
+    Making an histogram of the data, ignoring zero values
+    
+    """
+    
+    for year in rasters_clipped:
+        
+        # extracting alt and rad
+        alt_rasts = [rast[0] for rast in rasters_clipped[year]]
+        rad_rasts = [rast[1] for rast in rasters_clipped[year]]
+        
+        # getting the total of rasters
+        total_rasters_alt = np.stack(alt_rasts, axis=0)
+        total_rasters_rad = np.stack(rad_rasts, axis=0)
+        
+        fig, data = plt.subplots()
+        data = plt.hist(total_rasters_rad.flatten(), bins='auto', label='radiometry')
+        data = plt.hist(total_rasters_alt.flatten(), bins='auto', label='altitude')
+        plt.legend(loc='upper right')
+        plt.title("Histogram for year " + year)
+        plt.show()
+    
+    """
+    
+    We now stack up the rasters into 2*128*128 dimension rasters and normalize them
+    using z-scores and removing minimum altitude for mns
+    
+    """
+    
+    ## stacking the result (every raster has two dimensions, color and altitude)
+    # normalizing
+    s_rasters_clipped = {}
+    
+    for year in rasters_clipped:
+        
+        # extracting alt and rad
+        alt_rasts = [rast[0] for rast in rasters_clipped[year]]
+        rad_rasts = [rast[1] for rast in rasters_clipped[year]]
+        
+        # subtracting min from alt rasters
+        alt_rasts = [rast - np.min(rast) for rast in alt_rasts]
+        
+        # getting the total of rasters
+        total_rasters_alt = np.stack(alt_rasts, axis=0)
+        total_rasters_rad = np.stack(rad_rasts, axis=0)
+        
+        # getting stat values
+        mu_alt = np.mean(total_rasters_alt)
+        std_alt = np.std(total_rasters_alt)
+        mu_rad = np.mean(total_rasters_rad)
+        std_rad = np.std(total_rasters_alt)
         
         # normalizing
-        alt_rasts[i][non_zero_alt] = (alt_rasts[i][non_zero_alt] - alt_rasts[i][non_zero_alt].mean()) / alt_rasts[i][non_zero_alt].std() + 10
-        rad_rasts[i][non_zero_rad] = (rad_rasts[i][non_zero_rad] - rad_rasts[i][non_zero_rad].mean()) / rad_rasts[i][non_zero_rad].std() + 10
-                    
-                    
-    #alt_rasts = [(rast-np.min(rast[np.nonzero(rast)])) / (np.max(rast[np.nonzero(rast)])-np.min(rast[np.nonzero(rast)])) for rast in alt_rasts]
-    #rad_rasts = [(rast-np.min(rast[np.nonzero(rast)])) / (np.max(rast[np.nonzero(rast)])-np.min(rast[np.nonzero(rast)])) for rast in rad_rasts]
+        for i in range(len(alt_rasts)):
+            
+            # boolean of non zeros
+            non_zero_alt = np.nonzero(alt_rasts[i])
+            non_zero_rad = np.nonzero(rad_rasts[i])
+            
+            # normalizing
+            alt_rasts[i][non_zero_alt] = (alt_rasts[i][non_zero_alt] - alt_rasts[i][non_zero_alt].mean()) / alt_rasts[i][non_zero_alt].std() + 10
+            rad_rasts[i][non_zero_rad] = (rad_rasts[i][non_zero_rad] - rad_rasts[i][non_zero_rad].mean()) / rad_rasts[i][non_zero_rad].std() + 10
+                        
+                        
+        #alt_rasts = [(rast-np.min(rast[np.nonzero(rast)])) / (np.max(rast[np.nonzero(rast)])-np.min(rast[np.nonzero(rast)])) for rast in alt_rasts]
+        #rad_rasts = [(rast-np.min(rast[np.nonzero(rast)])) / (np.max(rast[np.nonzero(rast)])-np.min(rast[np.nonzero(rast)])) for rast in rad_rasts]
+        
+        
+        # stacking up into a dictionary
+        s_rasters_clipped[year] = [np.stack((alt, rad), axis=0) for alt, rad in zip(alt_rasts, rad_rasts)]
     
+    # we add the year vector and stack it up
+    # index for the vector
+    i = 0
     
-    # stacking up into a dictionary
-    s_rasters_clipped[year] = [np.stack((alt, rad), axis=0) for alt, rad in zip(alt_rasts, rad_rasts)]
-
-# we add the year vector and stack it up
-# index for the vector
-i = 0
-
-# creating the ground truth
-gt = []
-
-for year in s_rasters_clipped:
+    # creating the ground truth
+    gt = []
     
-    # number of samples per year
-    m = len(s_rasters_clipped[year])
-    
-    # creating the vector for the year (labels for adversarial network)
-    year_vect = np.zeros(len(s_rasters_clipped))
-    year_vect[i] = 1
-    i += 1
-    
-    # 
-    gt_year = year_vect.copy()
-    
-    # stacking up the values to have a (m, 5) dimensions gt
-    for ind in range(m-1):
-        gt_year = np.row_stack([gt_year, year_vect.copy()])
-    
-    # adding up to the gt list
-    gt.append(gt_year)
-    
-# stacking up the result and making a list with len=m
-gt = np.stack(gt)
-gt = gt.reshape(gt.shape[0]*gt.shape[1], gt.shape[2])
-gt = list(gt)
-    
-# visualizing some cases
-for i in range(5, 6):
-    print(i)
     for year in s_rasters_clipped:
-        fun.visualize(s_rasters_clipped[year][i].squeeze(), third_dim=False)
-     
-
-"""
-
-We check the rasters to get interesting samples for ground truth
-
-"""            
-
-## checking interesting samples for gt
-ind = random.randint(0, 900)
-
-print(ind)
-
-fun.visualize(s_rasters_clipped["1954"][ind][:,:,:], third_dim=False)
-fun.visualize(s_rasters_clipped["1966"][ind][:,:,:], third_dim=False)
-fun.visualize(s_rasters_clipped["1970"][ind][:,:,:], third_dim=False)
-fun.visualize(s_rasters_clipped["1989"][ind][:,:,:], third_dim=False)
-
-# interesting sample
-sample_id = [121, 833, 127, 592, 851, 107, 480, 700, 45, 465,
-             230, 416, 844, 237, 636, 13, 518, 298, 707, 576]
-
-# loading gt boxes
-sample_box = [boxes[i] for i in sample_id]
-sample_box_c = [sample_box[i][0] for i in range(len(sample_box))]
-
-# list to store pnts in tuples
-list_pnt_tuple = []
-
-# converting into list of tuples
-for i in range(len(sample_box_c)):
-    list_pnt_tuple.append([tuple(pnt) for pnt in sample_box_c[i]["coordinates"][0]])
-
-# loading list of polygons
-poly_box = [Polygon(list_pnt_tuple[i]) for i in range(len(list_pnt_tuple))]
-
-# loading as a geo df
-gs = gpd.GeoSeries(poly_box)
-
-## we save the polygons as .shp
-os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
-
-gs.to_file(filename='./data/GT_poly.shp', driver='ESRI Shapefile')
+        
+        # number of samples per year
+        m = len(s_rasters_clipped[year])
+        
+        # creating the vector for the year (labels for adversarial network)
+        year_vect = np.zeros(len(s_rasters_clipped))
+        year_vect[i] = 1
+        i += 1
+        
+        # 
+        gt_year = year_vect.copy()
+        
+        # stacking up the values to have a (m, 5) dimensions gt
+        for ind in range(m-1):
+            gt_year = np.row_stack([gt_year, year_vect.copy()])
+        
+        # adding up to the gt list
+        gt.append(gt_year)
+        
+    # stacking up the result and making a list with len=m
+    gt = np.stack(gt)
+    gt = gt.reshape(gt.shape[0]*gt.shape[1], gt.shape[2])
+    gt = list(gt)
+        
+    # visualizing some cases
+    for i in range(5, 6):
+        print(i)
+        for year in s_rasters_clipped:
+            fun.visualize(s_rasters_clipped[year][i].squeeze(), third_dim=False)
+            
+    """
+    
+    Saving the rasters as numpy files
+    
+    """
+    
+    ## saving the rasters
+    for year in s_rasters_clipped:
+        
+        i = 1
+        
+        for np_mat in s_rasters_clipped[year]:
+            
+            file = "data/np_data/"+year+"_"
+            save(file+str(i)+'.npy', np_mat)
+            
+            i += 1
+    
+    """
+    
+    We check the rasters to get interesting samples for ground truth
+    
+    """            
+    
+    ## checking interesting samples for gt
+    ind = random.randint(0, 900)
+    
+    print(ind)
+    
+    fun.visualize(s_rasters_clipped["1954"][ind][:,:,:], third_dim=False)
+    fun.visualize(s_rasters_clipped["1966"][ind][:,:,:], third_dim=False)
+    fun.visualize(s_rasters_clipped["1970"][ind][:,:,:], third_dim=False)
+    fun.visualize(s_rasters_clipped["1989"][ind][:,:,:], third_dim=False)
+    
+    # interesting sample
+    sample_id = [121, 833, 127, 592, 851, 107, 480, 700, 45, 465,
+                 230, 416, 844, 237, 636, 13, 518, 298, 707, 576]
+    
+    # loading gt boxes
+    sample_box = [boxes[i] for i in sample_id]
+    sample_box_c = [sample_box[i][0] for i in range(len(sample_box))]
+    
+    # list to store pnts in tuples
+    list_pnt_tuple = []
+    
+    # converting into list of tuples
+    for i in range(len(sample_box_c)):
+        list_pnt_tuple.append([tuple(pnt) for pnt in sample_box_c[i]["coordinates"][0]])
+    
+    # loading list of polygons
+    poly_box = [Polygon(list_pnt_tuple[i]) for i in range(len(list_pnt_tuple))]
+    
+    # loading as a geo df
+    gs = gpd.GeoSeries(poly_box)
+    
+    ## we save the polygons as .shp
+    os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
+    
+    gs.to_file(filename='./data/GT/GT_poly_2.shp', driver='ESRI Shapefile')
 
 
 ### building the dataset

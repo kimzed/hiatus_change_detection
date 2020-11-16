@@ -1,6 +1,7 @@
 # Project hiatus
-# functions
-# 21/10/2020
+# various functions for visulization, formatting, etc.
+# file with all the functions to charge, format and visualize
+# 13/11/2020
 # Cédric BARON
 
 # importing libraries
@@ -24,7 +25,6 @@ def getFeatures(gdf):
     """
     
     return [json.loads(gdf.to_json())['features'][0]['geometry']]
-
 
 
 def nn_interpolate(A, new_size):
@@ -82,7 +82,7 @@ def regrid(data, out_x, out_y):
     return interpolating_function((xv, yv))
 
 
-
+## variables for the visualize function
 # creating the x and y values for the 3d plot
 a = np.arange(128)
 a.reshape((128,1))
@@ -95,6 +95,8 @@ x = np.flip(np.arange(128))
 for i in range(127):
     y = np.column_stack( [ y , a] )
     x = np.row_stack([x, b])
+
+
 
 def visualize(raster, third_dim=True):
     """
@@ -179,35 +181,51 @@ def view_u(train, trained_model, tile_index = None):
     # loading the data and reshaping it for prediction
     input = train[tile_index]
     
+    # converting to adequate format
     try:
         input = input.view(1, input.shape[0], input.shape[1], input.shape[2]).float().cuda()
     except:
         input = torch.from_numpy(input[None,:,:,:]).float().cuda()
 
+    # loading the encoder
+    model = trained_model.encoder
+    
+    # load altitude and reshape it
+    alt = input[:,0,:,:]
+    alt = alt.view(input.shape[0], 1, input.shape[2], input.shape[3])
+    
+    # load rad and reshape it
+    rad = input[:,1,:,:]
+    rad = rad.view(input.shape[0], 1, input.shape[2], input.shape[3])
     
     ## running the model
     # encoder alt
-    a1 = trained_model.a2(trained_model.a1(input[:,0,:,:].view(input.shape[0], 1,
-                                           input.shape[2], input.shape[3])))
+    a1 = model.a2(model.a1(alt))
     #level 2
-    a3= trained_model.a4(trained_model.a3(a1))
+    a3= model.a4(model.a3(a1))
     
     #encoder
     #level 1
-    x1 = trained_model.c2(trained_model.c1(input[:,1,:,:].view(input.shape[0], 1,
-                                           input.shape[2], input.shape[3])))
+    x1 = model.c2(model.c1(rad))
     #level 2
-    x2= trained_model.c4(trained_model.c3(x1 + a1))
-    #level 3
-    x3 = trained_model.c6(trained_model.c5(x2 + a3))
-    #decoder
-    #level 2
-    y4 = trained_model.t1(x3)
-    y3 = trained_model.c8(trained_model.c7(y4))
+    x2= model.c3(x1 + a1)
     
-    #level 1       
-    y2 = trained_model.t2(y3)
-    y1 = trained_model.c10(trained_model.c9(y2))
+    # extra layer
+    x2_b = model.c4(x2)
+    
+    #level 3
+    x3 = model.c5(x2_b + a3)
+    
+    #decoder
+    model = trained_model.decoder
+    #level 2
+    y4 = model.t1(model.c6(x3))
+    y3 = model.c8(model.c7(y4))
+    
+    #level 1
+    y2 = model.t2(y3)
+    y1 = model.c10(model.c9(y2))
+    
     #output        
     print(input.shape)
     
@@ -221,11 +239,12 @@ def view_u(train, trained_model, tile_index = None):
     ax.set(title='x1 : %d x %d x %d' %(x1.shape[1:]))
     view_embeddings(x1, ax)
     ax = fig.add_subplot(3, 7, 9, aspect=1)
-    ax = fig.add_subplot(3, 7, 10, aspect=1)
-    ax.set(title='x2 : %d x %d x %d' %(x3.shape[1:]))
+    ax.set(title='x2 : %d x %d x %d' %(x2.shape[1:]))
     view_embeddings(x2, ax)
+    ax = fig.add_subplot(3, 7, 10, aspect=1)
+    ax.set(title='x2_b : %d x %d x %d' %(x2.shape[1:]))
+    view_embeddings(x2_b, ax)
     ax = fig.add_subplot(3, 7, 17, aspect=1)
-    ax = fig.add_subplot(3, 7, 18, aspect=1)
     ax.set(title='x3 : %d x %d x %d' %(x3.shape[1:]))
     view_embeddings(x3, ax)
     ax = fig.add_subplot(3, 7, 11, aspect=1)
@@ -242,16 +261,23 @@ def view_u(train, trained_model, tile_index = None):
     view_embeddings(y1, ax)
 
 
-
 def change_detection(rast1, rast2, trained_model, threshold):
   """
   param: two rasters of dims 1*2*128*128, our neural network model
   fun: outputs a change detection map based on two bi-temporal rasters
   """
   
-  ## encoding rast1
+  # ============rast1===========
   input = torch.from_numpy(rast1)
   input = input.float().cuda()
+  
+  # load altitude and reshape it
+  alt = input[:,0,:,:]
+  alt = alt.view(input.shape[0], 1, input.shape[2], input.shape[3])
+    
+  # load rad and reshape it
+  rad = input[:,1,:,:]
+  rad = rad.view(input.shape[0], 1, input.shape[2], input.shape[3])
   
   # encoder alt
   a1 = trained_model.a2(trained_model.a1(input[:,0,:,:].view(input.shape[0], 1,
@@ -268,9 +294,17 @@ def change_detection(rast1, rast2, trained_model, threshold):
   #level 3
   code_rast1 = trained_model.c6(trained_model.c5(x2 + a3))
   
-  ## encoding rast2
+  # ============rast2===========
   input = torch.from_numpy(rast2)
   input = input.float().cuda()
+  
+  # load altitude and reshape it
+  alt = input[:,0,:,:]
+  alt = alt.view(input.shape[0], 1, input.shape[2], input.shape[3])
+    
+  # load rad and reshape it
+  rad = input[:,1,:,:]
+  rad = rad.view(input.shape[0], 1, input.shape[2], input.shape[3])
   
   # encoder alt
   a1 = trained_model.a2(trained_model.a1(input[:,0,:,:].view(input.shape[0], 1,
@@ -287,7 +321,7 @@ def change_detection(rast1, rast2, trained_model, threshold):
   #level 3
   code_rast2 = trained_model.c6(trained_model.c5(x2 + a3))
   
-  ## difference matrixes on several levels
+  # ============cmap===========
   # difference matrix on the code
   CD_code = torch.abs(code_rast1 - code_rast2)
   CD_code = CD_code * (CD_code > threshold).float()
@@ -316,6 +350,13 @@ def change_detection(rast1, rast2, trained_model, threshold):
 
 
 def clipping_rasters(dict_rasters, boxes):
+    """
+    params: dictionary with years as key and corresponding rasters as values, 
+            boxes as a list of dictionaries containing bounding boxes
+            
+    fun: outputs a dictionary with years as keys and as values the clipped
+         rasters
+    """
     
     # creating a dict that will store the clipped rasters
     rasters_clipped = {}

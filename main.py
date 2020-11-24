@@ -22,7 +22,7 @@ os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 # importing our functions
 import utils as fun
 import model as mod
-
+import train as train
 
 """
 
@@ -40,7 +40,7 @@ list_files = os.listdir()
 list_files.sort(reverse=True)
 
 # storing our rasters per year in a dictionary
-s_rasters_clipped = {"1954":[], "1966":[], "1970":[], "1978":[], "1989":[]}
+s_rasters_clipped = {"1954":[],"1966":[], "1970":[], "1978":[], "1989":[]}
 
 # loading the list for the ground truth
 gt = []
@@ -48,31 +48,31 @@ gt = []
 # loading the rasters
 for year in s_rasters_clipped:
     for file in list_files:
-        if year in file and "gt" not in file:
+        if file[:4] == year in file and "gt" not in file:
             s_rasters_clipped[year].append(load(file))
             
 # loading the ground truth (corresponding dates)
-for file in list_files:
-    if "gt" in file:
-        gt += [load(file)]
+for year in s_rasters_clipped:
+    for file in list_files:
+        if file[:4] == year in file and "gt" in file:
+            gt += [load(file)]
         
 ## loading the GT rasters
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection/data/GT_np")
 
 # dict to store our GT rasters
-gt_change ={"1966":[], "1970":[], "1978":[], "1989":[]}
+gt_change ={"1954":[], "1966":[], "1970":[], "1978":[], "1989":[]}
 
 # getting the list of the files
-list_files = os.listdir()
-list_files.sort()
+list_files_gt = os.listdir()
+list_files_gt.sort()
 
 # loading the matrixes in the dict per year
-for file in list_files:
+for file in list_files_gt:
     for year in gt_change:
-        if year in file:
+        if year in file and "class" in file:
             gt_change[year].append(load(file))
       
-        
 """
 
 we now build our dataset as a list of tensors
@@ -85,6 +85,8 @@ m_samples = []
 for year in s_rasters_clipped:
     
     m_samples += s_rasters_clipped[year]
+    
+    print(year)
 
 def train_val_dataset(dataset, gt, val_split=0.25):
     """
@@ -142,9 +144,9 @@ load_model = False
 
 ## working with tensorboard
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
-writer = SummaryWriter('runs/1611_1_testcmap')
+writer = SummaryWriter('runs/2311_2_testingcm')
 
-if load_model == True:
+if load_model:
     args = mock.Mock() 
     args.n_channel = 1
     args.conv_width = [8,4,8,8,16,8]
@@ -158,19 +160,21 @@ else:
     #stores the parameters
     args = mock.Mock() 
     args.n_epoch = 100
-    args.batch_size = 64
+    args.batch_size = 92
     args.n_channel = 1
     args.conv_width = [8,8,16,16,16,16]
     args.dconv_width = [8,8,8,8]
     args.cuda = 1
-    args.lr = 0.002
-    trained_model, trained_discr = mod.train_full(args, train_data, writer)
+    args.lr_steps = [50, 70, 90]
+    args.lr_decay = 0.5
+    args.lr = 0.005
+    trained_model, trained_discr = train.train_full(args, train_data, writer)
 
 ## saving the model
 save_model = False
 
 # saving the model
-if save_model == True:
+if save_model:
     torch.save(trained_model.state_dict(), "models/pixel_wise_100")
 
 ## visualizing the result
@@ -183,23 +187,62 @@ for i in range(5):
     # visualizing prediction
     pred = trained_model.predict(raster[None,:,:,:].float().cuda())[0].cpu()
     fun.visualize(pred.detach().numpy().squeeze(), third_dim=False)
-    
-### view the embeddings in the model
+
 '''
 
 Now we are going to visualize various embeddings in the model itself
 
 '''
 
-
 # visualizing for a random index number the inner embeddings
 fun.view_u(datasets["train"], trained_model, random.randint(0, 900))
 
 # visualizing embedding inside the model
 nb = random.randint(0, 900)
-fun.view_u(s_rasters_clipped["1966"], trained_model, nb)
+fun.view_u(s_rasters_clipped["1954"], trained_model, nb)
 fun.view_u(s_rasters_clipped["1970"], trained_model, nb)
 
+"""
+
+Checking for which year the discriminator can't predict the year
+
+"""
+
+count = 0
+
+trained_model.encoder.eval()
+trained_model.discr.eval()
+
+labs = []
+
+for i in range(900):
+    
+    # loading gt
+    gt_rast = gt[i]
+    gt_rast = torch.from_numpy(gt_rast)
+    _, pred_max_gt = gt_rast.max(dim=0)
+    
+    # loading raster
+    raster = s_rasters_clipped["1954"][i]
+    
+    # visualizing prediction
+    code = trained_model.encoder.forward(torch.from_numpy(raster[None,:,:,:]).float().cuda())
+    label = trained_model.discr.forward(code)
+    
+    _, pred_max = label.max(dim=1)
+    
+    matches = pred_max.cpu() == pred_max_gt
+    
+    if not matches:
+        
+        #print(i)
+        if label[0,1] < 0.99:
+            # visualizing training raster
+            fun.visualize(raster, third_dim=False)
+        
+        count += 1   
+        labs.append(label)
+        
 """
 
 Performing change detection analysis on manually modified data
@@ -260,30 +303,32 @@ fun.view_embeddings(dccode)
 Performing change detection analysis on actual data
 
 """
-ind = random.randint(0, 1500)
-
-## running cd model
-rast1 = s_rasters_clipped["1954"][144][None,:,:,:]
-rast2 = s_rasters_clipped["1966"][144][None,:,:,:]
-
 ind = random.randint(0, 900)
 
-fun.visualize(s_rasters_clipped["1954"][482][:,:,:], third_dim=False)
-fun.visualize(s_rasters_clipped["1966"][482][:,:,:], third_dim=False)
+# interesting nbs : 783
+
+## running cd model
+rast1 = s_rasters_clipped["1954"][ind][None,:,:,:]
+rast2 = s_rasters_clipped["1970"][ind][None,:,:,:]
+
+ind = random.randint(0, 900)
+print(ind)
+fun.visualize(s_rasters_clipped["1954"][ind][:,:,:], third_dim=False)
+fun.visualize(s_rasters_clipped["1970"][ind][:,:,:], third_dim=False)
 
     
-threshold = 2.5
+threshold = 4.5
 
 # computing change raster
-dccode, code1, code2, cmap = fun.change_detection(rast1, rast2, trained_model, threshold)
+cmap, dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model, threshold, visualization=True)
 
 # visualizing result
 fun.visualize(rast1[:,:,:].squeeze(), third_dim = False)
 fun.visualize(rast2[:,:,:].squeeze(), third_dim = False)
-fun.view_embeddings(dccode)
 
 # visualize the binary change detection raster
-show(cmap)
+fun.view_embeddings(code1)
+fun.view_embeddings(code2)
 
 
 """
@@ -292,20 +337,18 @@ Checking performance on ground truth change maps
 
 """
 
-
-# creating a list with all the scores per year
-acc_list = {"1966":[], "1970":[], "1978":[], "1989":[]}
-
 # making a list of possible thresholds
-thresholds = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 8, 9, 10, 11]
+thresholds = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 8, 9, 10, 11, 100]
+thresholds = [0, 100]
+    
+for thresh in thresholds:
+    
+    # computinf accuracy on the list of rasters
+    m = fun.accuracy_model(gt_change, trained_model, thresh)
+    
+    print("Threshold is "+str(thresh))
+    print(m.CM)
+    print('IoU : {:3.2f}%'.format(m.class_IoU()))
+    print('Overall accuracy : {:3.2f}%'.format(m.overall_accuracy()*100))
+    print('\n')
 
-for year in gt_change:
-    
-    # loading list of rasters per year
-    list_gt_rasts = gt_change[year]
-    
-    for thresh in thresholds:
-        
-        # computinf accuracy on the list of rasters
-        acc_list[year].append(fun.AccuracyModel(list_gt_rasts, trained_model, thresh))
-        

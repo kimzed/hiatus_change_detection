@@ -5,10 +5,11 @@
 
 import matplotlib.pyplot as plt
 import torch
-import torch.optim as optim
 import torchnet as tnt
 import numpy as np
 import os
+from torch.optim.lr_scheduler import MultiStepLR
+
 
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 
@@ -16,7 +17,7 @@ os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 import loss as loss_fun
 import model as mod
 
-def train(model, discr, optimizer_D, args, datasets):
+def train(model, args, datasets):
   """
   train for one epoch
   args are some parameters of our model, e.g. batch size or n_class, etc.
@@ -25,7 +26,8 @@ def train(model, discr, optimizer_D, args, datasets):
   #switch the model in training mode
   model.encoder.train()
   model.decoder.train() 
-  
+  model.discr.train()
+
   #the loader function will take care of the batching
   # train_set was defined prior
   loader = torch.utils.data.DataLoader(datasets, \
@@ -36,6 +38,7 @@ def train(model, discr, optimizer_D, args, datasets):
   loss_data_alt = tnt.meter.AverageValueMeter()
   loss_data_rad = tnt.meter.AverageValueMeter()
   loss_disc_val = tnt.meter.AverageValueMeter()
+  accu_discr = 0.0
   
   # loops over the batches
   for index, (tiles, labels) in enumerate(loader):
@@ -70,74 +73,94 @@ def train(model, discr, optimizer_D, args, datasets):
     #loss_alt = torch.mean((tiles_alt - pred_alt)**2 / (2*d_mat_alt**2+eps) + 2*torch.log(d_mat_alt+eps))
     #loss_rad = torch.mean((tiles_rad - pred_rad)**2 / (2*d_mat_rad**2+eps) + 2*torch.log(d_mat_rad+eps))
     
-    # reshaping the labels 
-    list_labels = [labels for i in range(code.shape[-1])]
-    labels = torch.stack(list_labels, dim=-1)
-    list_labels = [labels for i in range(code.shape[-1])]
-    labels = torch.stack(list_labels, dim=-1)
+    # applying arg max on labels for cross entropy
     _, labels = labels.max(dim=1)
     
     adver = True
     
     if adver:
         
-        ## now the disciminant part
-        #pred_year = discr(code.detach())
-        pred_year = discr(code)
-        _, pred_max = pred_year.max(dim=1)
+        nb_loop = 1
         
-        ## applying loss function for the discriminator and optimizing the weights
-        loss_disc = loss_fun.CrossEntropy(pred_year, labels)
+        for i in range(nb_loop):
         
-        # optimizing the discriminator
-        optimizer_D.zero_grad()
-        loss_disc.backward(retain_graph=True)
-        optimizer_D.step()
+            ## now the disciminant part
+            #pred_year = discr(code.detach())
+            pred_year = model.discr(code)
+            
+            # applying arg max for checking accuracy
+            _, pred_max = pred_year.max(dim=1)
+            
+            ## applying loss function for the discriminator and optimizing the weights
+            loss_disc = loss_fun.CrossEntropy(pred_year, labels)
+            
+            # optimizing the discriminator. optional: training the encoder as well
+            model.opti_D.zero_grad()
+            #model.opti_AE.zero_grad()
+            loss_disc.backward(retain_graph=True)
+            model.opti_D.step()
+            #model.opti_AE.step()
+            
+            # saving the loss
+            loss_disc_val.add(loss_disc.item())
+            
+            # checking the accuracy
+            matrix_accu = pred_max == labels
+            matrix_accu_f = matrix_accu.flatten()
+            matrix_accu_f = matrix_accu_f.cpu().detach().numpy()
+            nb_true = np.count_nonzero(matrix_accu_f == True)
+            accu_discr += nb_true / len(matrix_accu_f)
+            
+            # optional: putting an adversarial on the encoder
+            #code = model.encoder(tiles)
+            #pred_year = discr(code)
+            #loss_disc = loss_fun.CrossEntropy(pred_year, labels)
+            #loss_disc_adv = -loss_disc
+            # optimizing the discriminator
+            #model.opti_E.zero_grad()
+            #loss_disc_adv.backward()
+            #model.opti_E.step()
+            
+        #averaging accuracy
+        accufin = accu_discr/(len(loader)*nb_loop)
         
-        # saving the loss
-        loss_disc_val.add(loss_disc.item())
         
-        # checking the accuracy
-        matrix_accu = pred_max == labels
-        matrix_accu_f = matrix_accu.flatten()
-        matrix_accu_f = matrix_accu_f.cpu().detach().numpy()
-        nb_true = np.count_nonzero(matrix_accu_f == True)
-        accu_discr = nb_true / len(matrix_accu_f)
-        
-        # calculating the loss for the adversarial part
-        pred_year = discr(model.code(tiles))
-        loss_disc = loss_fun.CrossEntropy(pred_year, labels)
-        
-        ## optional: optimizing the encoder
-        #optimizer.zero_grad()
-        #loss_disc.backward(retain_graph=True)
-        #optimizer.step() #one SGD step
         
     auto_encod = True
     
     if auto_encod:
+        
+        code = model.encoder(tiles)
+        pred_year = model.discr(code)
+        loss_disc = loss_fun.CrossEntropy(pred_year, labels)
+        
         # total loss
-        loss = loss_alt + loss_rad - 1 * loss_disc
+        if adver:
+            loss =  loss_alt + loss_rad -  1 * loss_disc 
+        else:
+            loss =  loss_alt + loss_rad
+            
         loss_data.add(loss.item())
         
         # ============backward===========
-        model.opti_E.zero_grad()
-        model.opti_D.zero_grad()
-        loss.backward(retain_graph=True)
-        model.opti_E.step() #one SGD step
-        model.opti_D.step()
-
+        model.opti_AE.zero_grad()
+        loss.backward()
+        model.opti_AE.step()
+    
     # storing the loss values
     loss_data_alt.add(loss_alt.item())
     loss_data_rad.add(loss_rad.item())
     #loss_data_alt.add(loss_alt.cpu().detach())
     #loss_data_rad.add(loss_rad.cpu().detach())
     
+    if adver == False:
+        accufin = 0
     #for p in model.parameters(): #we clip the gradient at norm 1
     #  p.grad.data.clamp_(-1, 1) #this helps learning faster
-    
-    result = (loss_data.value()[0], len(loader), loss_data_alt.value()[0],
-              loss_data_rad.value()[0], loss_disc_val.value()[0], accu_discr)
+  
+  # output of various losses
+  result = (loss_data.value()[0], len(loader), loss_data_alt.value()[0],
+              loss_data_rad.value()[0], loss_disc_val.value()[0], accufin)  
     
   return result
 
@@ -150,21 +173,19 @@ def train_full(args, datasets, writer):
   #initialize the models
   encoder = mod.Encoder(args.n_channel, args.conv_width)
   decoder = mod.Decoder(args.n_channel, args.conv_width, args.dconv_width)
-  
   discr = mod.Discriminator()
 
   # total number of parameters
   print('Total number of encoder parameters: {}'.format(sum([p.numel() for p in encoder.parameters()])))
   print('Total number of encoder parameters: {}'.format(sum([p.numel() for p in decoder.parameters()])))
+  print('Total number of discriminator parameters: {}'.format(sum([p.numel() for p in discr.parameters()])))
   
-  #define the optimizer
-  #adam optimizer is always a good guess for classification
-  optimizer_E = optim.Adam(encoder.parameters(), lr=args.lr, weight_decay=1e-5)
-  optimizer_De = optim.Adam(decoder.parameters(), lr=args.lr, weight_decay=1e-5)
-  optimizer_D = optim.Adam(discr.parameters(), lr=args.lr)
+  # creating a model with encoder, decoder and discriminator
+  model = mod.AdversarialAutoEncoder(encoder, decoder, discr, args.lr)
   
-  # creating a model with encoder and decoder
-  model = mod.AutoEncoder(encoder, decoder, optimizer_E, optimizer_De)
+  # objects to update the learning rate
+  scheduler_D = MultiStepLR(model.opti_D, milestones=args.lr_steps, gamma=args.lr_decay)
+  scheduler_AE = MultiStepLR(model.opti_AE, milestones=args.lr_steps, gamma=args.lr_decay)
   
   TRAINCOLOR = '\033[100m'
   NORMALCOLOR = '\033[0m'
@@ -176,10 +197,12 @@ def train_full(args, datasets, writer):
       
     #train one epoch
     loss_train, nb_batches, loss_alt, loss_rad, loss_disc, accu_discr = train(model,
-                                                                              discr,
-                                                                              optimizer_D,
                                                                               args,
                                                                               datasets)
+    
+    # updating the learning rate
+    scheduler_D.step()
+    scheduler_AE.step()
     
     # storing loss for later plotting
     losses["tot"].append(loss_train)

@@ -14,6 +14,8 @@ from sklearn.decomposition import PCA
 from rasterio.plot import show
 from rasterio.mask import mask
 from collections import Counter
+from sklearn.metrics import confusion_matrix
+import random
 
 # this is used for the visualize function
 from mpl_toolkits.mplot3d import Axes3D
@@ -65,7 +67,7 @@ def nn_interpolate(A, new_size):
     return final_matrix
 
 
-def regrid(data, out_x, out_y):
+def regrid(data, out_x, out_y, interp_method="linear"):
     """
     param: numpy array, number of columns, number of rows
     fun: function to interpolate a raster
@@ -75,7 +77,7 @@ def regrid(data, out_x, out_y):
     m = max(data.shape[0], data.shape[1])
     y = np.linspace(0, 1.0/m, data.shape[0])
     x = np.linspace(0, 1.0/m, data.shape[1])
-    interpolating_function = RegularGridInterpolator((y, x), data)
+    interpolating_function = RegularGridInterpolator((y, x), data, method=interp_method)
     yv, xv = np.meshgrid(np.linspace(0, 1.0/m, out_y), np.linspace(0, 1.0/m, out_x))
     
     # reprojects the data
@@ -191,27 +193,25 @@ def view_u(train, trained_model, tile_index = None):
     model = trained_model.encoder
     
     # load altitude and reshape it
-    alt = input[:,0,:,:]
-    alt = alt.view(input.shape[0], 1, input.shape[2], input.shape[3])
+    alt = input[:,0,:,:][:,None,:,:]
     
     # load rad and reshape it
-    rad = input[:,1,:,:]
-    rad = rad.view(input.shape[0], 1, input.shape[2], input.shape[3])
+    rad = input[:,1,:,:][:,None,:,:]
     
     ## running the model
     # encoder alt
-    a1 = model.a2(model.a1(alt))
+    a1 = model.sca2(model.ca1(alt))
     #level 2
-    a3= model.a4(model.a3(a1))
+    a3= model.sca4(model.ca3(a1))
     
     #encoder
     #level 1
-    x1 = model.c2(model.c1(rad))
+    x1 = model.sc2(model.c1(rad))
     #level 2
     x2= model.c3(x1 + a1)
     
     # extra layer
-    x2_b = model.c4(x2)
+    x2_b = model.sc4(x2)
     
     #level 3
     x3 = model.c5(x2_b + a3)
@@ -261,7 +261,7 @@ def view_u(train, trained_model, tile_index = None):
     view_embeddings(y1, ax)
 
 
-def change_detection(rast1, rast2, trained_model, threshold):
+def change_detection(rast1, rast2, trained_model, threshold, gts = False, visualization=False):
   """
   param: two rasters of dims 1*2*128*128, our neural network model
   fun: outputs a change detection map based on two bi-temporal rasters
@@ -272,81 +272,117 @@ def change_detection(rast1, rast2, trained_model, threshold):
   input = input.float().cuda()
   
   # load altitude and reshape it
-  alt = input[:,0,:,:]
-  alt = alt.view(input.shape[0], 1, input.shape[2], input.shape[3])
+  alt = input[:,0,:,:][:,None,:,:]
     
   # load rad and reshape it
-  rad = input[:,1,:,:]
-  rad = rad.view(input.shape[0], 1, input.shape[2], input.shape[3])
+  rad1 = input[:,1,:,:][:,None,:,:]
+  
+  # loading the encoder
+  trained_model = trained_model.encoder
   
   # encoder alt
-  a1 = trained_model.a2(trained_model.a1(input[:,0,:,:].view(input.shape[0], 1,
-                                           input.shape[2], input.shape[3])))
+  a1 = trained_model.sca2(trained_model.ca1(alt))
   #level 2
-  a3= trained_model.a4(trained_model.a3(a1))
+  a3= trained_model.sca4(trained_model.ca3(a1))
 
   #encoder
   #level 1
-  x1 = trained_model.c2(trained_model.c1(input[:,1,:,:].view(input.shape[0], 1,
-                                       input.shape[2], input.shape[3])))
+  x1 = trained_model.sc2(trained_model.c1(rad1))
   #level 2
-  x2= trained_model.c4(trained_model.c3(x1 + a1))
+  x2= trained_model.sc4(trained_model.c3(x1 + a1))
   #level 3
-  code_rast1 = trained_model.c6(trained_model.c5(x2 + a3))
+  code_rast1 = trained_model.c5(x2 + a3)
   
   # ============rast2===========
   input = torch.from_numpy(rast2)
   input = input.float().cuda()
   
   # load altitude and reshape it
-  alt = input[:,0,:,:]
-  alt = alt.view(input.shape[0], 1, input.shape[2], input.shape[3])
+  alt = input[:,0,:,:][:,None,:,:]
     
   # load rad and reshape it
-  rad = input[:,1,:,:]
-  rad = rad.view(input.shape[0], 1, input.shape[2], input.shape[3])
+  rad2 = input[:,1,:,:][:,None,:,:]
   
   # encoder alt
-  a1 = trained_model.a2(trained_model.a1(input[:,0,:,:].view(input.shape[0], 1,
-                                           input.shape[2], input.shape[3])))
+  a1 = trained_model.sca2(trained_model.ca1(alt))
   #level 2
-  a3= trained_model.a4(trained_model.a3(a1))
+  a3= trained_model.sca4(trained_model.ca3(a1))
 
   #encoder
   #level 1
-  x1 = trained_model.c2(trained_model.c1(input[:,1,:,:].view(input.shape[0], 1,
-                                       input.shape[2], input.shape[3])))
+  x1 = trained_model.sc2(trained_model.c1(rad2))
   #level 2
-  x2= trained_model.c4(trained_model.c3(x1 + a1))
+  x2= trained_model.sc4(trained_model.c3(x1 + a1))
   #level 3
-  code_rast2 = trained_model.c6(trained_model.c5(x2 + a3))
+  code_rast2 = trained_model.c5(x2 + a3)
   
   # ============cmap===========
   # difference matrix on the code
-  CD_code = torch.abs(code_rast1 - code_rast2)
-  CD_code = CD_code * (CD_code > threshold).float()
+  CD_code = (code_rast1 - code_rast2) ** 2
+  CD_code = torch.sum(CD_code, dim=1)
+  CD_code = CD_code ** 0.5
   
-  ## converting to binary values
-  # loading the binary raster
-  rast_fin = CD_code[0,0,:,:].detach().squeeze().cpu()
-
-  # adding up the different channels
-  for i in range(1, 8):
-        
-        rast = CD_code[0,i,:,:].detach().squeeze().cpu()
-        
-        rast_fin += rast
+  CD_code_cl = CD_code * (CD_code > threshold).float()
   
-  # interpolating
-  cmap = nn_interpolate(rast_fin, (128, 128))
+  # converting into numpy
+  CD_code_cl = CD_code_cl.cpu().detach().numpy()
   
-  # changing values to zero / one
-  no_change = cmap == 0
-  change = cmap != 0
-  cmap[no_change] = 0
-  cmap[change] = 1
+  # changing into a binary map
+  non_zero_alt = np.nonzero(CD_code_cl)
   
-  return CD_code, code_rast1, code_rast2, cmap
+  # creating the binary change map
+  cmap_bin = CD_code_cl.copy()
+  cmap_bin[non_zero_alt] = 1
+  
+  if visualization:
+      # show various embeddings in the model
+      fig = plt.figure(figsize=(25, 10)) #adapted dimension
+      fig.suptitle("Change detection on two rasters")
+      ax = fig.add_subplot(3, 7, 9, aspect=1)
+      ax.set(title='Change map: float' )
+      ax.imshow(CD_code.cpu().detach().numpy().squeeze())
+      plt.axis('off')
+      
+      ax = fig.add_subplot(3, 7, 1, aspect=1)
+      ax.set(title='Raster 1' )
+      ax.imshow(rad1.cpu().numpy().squeeze())
+      plt.axis('off')
+      
+      ax = fig.add_subplot(3, 7, 15, aspect=1)
+      ax.set(title='Raster 2' )
+      ax.imshow(rad2.cpu().numpy().squeeze())
+      plt.axis('off')
+      
+      ax = fig.add_subplot(3, 7, 10, aspect=1)
+      ax.set(title='Change map binary, min value= ' + str(cmap_bin.min()) )
+      ax.imshow(cmap_bin.squeeze())
+      plt.axis('off')
+      
+      ax = fig.add_subplot(3, 7, 2, aspect=1)
+      ax.set(title='Code raster 1' )
+      view_embeddings(code_rast1, ax)
+      plt.axis('off')
+      
+      ax = fig.add_subplot(3, 7, 16, aspect=1)
+      ax.set(title='Code raster 2' )
+      view_embeddings(code_rast2, ax)
+      plt.axis('off')
+      
+      
+      
+      if gts:
+          ax = fig.add_subplot(3, 7, 3, aspect=1)
+          ax.set(title='GT raster 1' )
+          ax.imshow(gts[0])
+          plt.axis('off')
+          
+          ax = fig.add_subplot(3, 7, 17, aspect=1)
+          ax.set(title='GT raster 2' )
+          ax.imshow(gts[1])
+          plt.axis('off')
+      
+  
+  return cmap_bin, CD_code, code_rast1, code_rast2
 
 
 def clipping_rasters(dict_rasters, boxes):
@@ -406,35 +442,95 @@ def clipping_rasters(dict_rasters, boxes):
     return rasters_clipped
     
 
-def AccuracyModel(list_rast_gt, model, threshold):
+class ConfusionMatrixBinary:
+  def __init__(self, n_class, class_names):
+    self.CM = np.zeros((n_class, n_class))
+    self.n_class = n_class
+    self.class_names = class_names
+  
+  def clear(self):
+    self.CM = np.zeros((self.n_class, self.n_class))
     
-    # loading a list to store all the accuracy elements
-    accu_tot = 0
+  def add_batch(self, gt, pred):
+    self.CM +=  confusion_matrix(gt, pred, labels = list(range(self.n_class)))
     
-    for rast in list_rast_gt:
+  def overall_accuracy(self):#percentage of correct classification
+    return np.trace(self.CM) / np.sum(self.CM)
+
+  def class_IoU(self, show = 1):
+    ious = np.full(self.n_class, 0.)
+    for i_class in range(self.n_class):
+      error_matrix = [i for i in range(self.n_class) if i != i_class]
+      ious[i_class] = self.CM[i_class, i_class] / (np.sum(self.CM[i_class, error_matrix]) + np.sum(self.CM[error_matrix, i_class]) + self.CM[i_class, i_class])
+    if show:
+      print('  |  '.join('{} : {:3.2f}%'.format(name, 100*iou) for name, iou in zip(self.class_names,ious)))
+    #do not count classes that are not present in the dataset in the mean IoU
+    return 100*np.nansum(ious) / (np.logical_not(np.isnan(ious))).sum()
+
+
+def accuracy_model(list_rast_gt, model, threshold):
+    
+    # loading the list of years
+    years = list(list_rast_gt.keys())
         
-        # loading the gt change map
-        cmap = rast[0,:,:]
+    # numb test
+    nb_test = 100
+    
+    # loading the confusion matrix 
+    m = ConfusionMatrixBinary(2, ["change", "no change"])
+    
+    
+    # getting accuracy score on random combinations
+    for i in range(nb_test):
+        
+        # getting two years randomly
+        year1 = years[random.randint(0, len(years)-1)]
+        year2 = years[random.randint(0, len(years)-1)]
+        
+        # getting a random integer
+        ind = random.randint(0, len(list_rast_gt[year1])-1)
+        
+        # loading the two rasters
+        rast1 = list_rast_gt[year1][ind]
+        rast2 = list_rast_gt[year2][ind]
         
         # loading the rasters
-        rast1 = rast[None, 1:3,:,:]
-        rast2 = rast[None, 3:,:,:]
+        gt1 = rast1[0,:,:]
+        rast1 = rast1[1:,:,:][None,:,:,:]
+        
+        # loading the rasters
+        gt2 = rast2[0,:,:]
+        rast2 = rast2[1:,:,:][None,:,:,:]
+        
+        ## getting the change map
+        # getting the nodata matrix
+        data_index = gt1 != 0
+        nodata2 = gt2 == 0
+        data_index[nodata2] = False
+        
+        # loading gts with masks
+        gt1_cl = gt1[data_index]
+        gt2_cl = gt2[data_index]
+        
+        # making a binary map
+        cmap_gt = gt1_cl.copy()
+        cmap_gt_bol_change = gt1_cl != gt2_cl
+        cmap_gt_bol_nochange = gt1_cl == gt2_cl
+        cmap_gt[cmap_gt_bol_change] = 1
+        cmap_gt[cmap_gt_bol_nochange] = 0
         
         # computing change raster
-        dccode, code1, code2, cmap_pred = change_detection(rast1, rast2, model, threshold)
+        cmap, dccode, code1, code2 = change_detection(rast1, rast2, model,
+                                                      threshold, (gt1,gt2), visualization=False)
         
-        # checking the accuracy of change
-        matrix_accu = cmap == cmap_pred
-        matrix_accu_f = matrix_accu.flatten()
-        matrix_accu_f = matrix_accu_f
-        nb_true = np.count_nonzero(matrix_accu_f == True)
-        accu = nb_true / len(matrix_accu_f)
+        # reshaping to original dimensions
+        cmap = regrid(cmap.reshape(cmap.shape[1:]), 128, 128, "nearest")
+        cmap_cl = np.rint(cmap)
         
-        # storing the value
-        accu_tot += accu
+        # removing no data
+        cmap_cl = cmap_cl[data_index]
         
-    # computing the mean
-    acc_mu = accu_tot / len(list_rast_gt)
+        # putting into the confusion matrix
+        m.add_batch(cmap_gt, cmap_cl)
     
-    return acc_mu
-
+    return m

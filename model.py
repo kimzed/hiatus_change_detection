@@ -5,25 +5,31 @@
 
 import torch.nn as nn
 import os
+import torch
+import torch.optim as optim
 
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 
-class AutoEncoder(nn.Module):
+class AdversarialAutoEncoder(nn.Module):
   """
   EncoderDecoder network for semantic segmentation
   """
   
-  def __init__(self, encoder, decoder, opti_E, opti_D):
+  def __init__(self, encoder, decoder, discr, learning_rate):
       
-      super(AutoEncoder, self).__init__()
+      super(AdversarialAutoEncoder, self).__init__()
       
       # saving the two models in the object
       self.encoder = encoder
       self.decoder = decoder
+      self.discr = discr
+      
+      # combining parameters
+      AE_params = list(self.encoder.parameters()) + list(self.decoder.parameters())
       
       # saving the optimizers in the object
-      self.opti_E = opti_E
-      self.opti_D = opti_D
+      self.opti_AE =  optim.Adam(AE_params, learning_rate, weight_decay=1e-5)
+      self.opti_D =  optim.Adam(self.discr.parameters(), learning_rate, weight_decay=1e-5)
       
       
   def predict(self, input):
@@ -69,29 +75,29 @@ class Encoder(nn.Module):
     #nn.BatchNorm2d(depth_of_layer)
     # n_channels is the number of channels from the input
     self.c1 = nn.Sequential(nn.Conv2d(n_channels, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
-    self.c2 = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],4,padding=1, stride=2, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
+    self.sc2 = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],4,padding=1, stride=2, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
     self.c3 = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.LeakyReLU(True))
-    self.c4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
+    self.sc4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
     self.c5 = nn.Sequential(nn.Conv2d(encoder_conv_width[3],encoder_conv_width[4],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[4]),nn.LeakyReLU(True))
     
     # network for the altitude
-    self.a1 = nn.Sequential(nn.Conv2d(n_channels, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
-    self.a2 = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
-    self.a3 = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.LeakyReLU(True))
-    self.a4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
+    self.ca1 = nn.Sequential(nn.Conv2d(n_channels, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
+    self.sca2 = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
+    self.ca3 = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.LeakyReLU(True))
+    self.sca4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
 
     #weight initialization
     self.c1[0].apply(self.init_weights)
-    self.c2[0].apply(self.init_weights)
-    self.c3[0].apply(self.init_weights)
-    self.c4[0].apply(self.init_weights)
+    self.sc2[0].apply(self.init_weights)
+    self.ca3[0].apply(self.init_weights)
+    self.sc4[0].apply(self.init_weights)
     self.c5[0].apply(self.init_weights)
     
     # for the DEM part
-    self.a1[0].apply(self.init_weights)
-    self.a2[0].apply(self.init_weights)
-    self.a3[0].apply(self.init_weights)
-    self.a4[0].apply(self.init_weights)
+    self.ca1[0].apply(self.init_weights)
+    self.sca2[0].apply(self.init_weights)
+    self.c3[0].apply(self.init_weights)
+    self.sca4[0].apply(self.init_weights)
     
     # running the model on gpu
     self.cuda()
@@ -108,26 +114,24 @@ class Encoder(nn.Module):
     """
     
     # load altitude and reshape it
-    alt = input[:,0,:,:]
-    alt = alt.view(input.shape[0], 1, input.shape[2], input.shape[3])
+    alt = input[:,0,:,:][:,None,:,:]
     
     # load rad and reshape it
-    rad = input[:,1,:,:]
-    rad = rad.view(input.shape[0], 1, input.shape[2], input.shape[3])
+    rad = input[:,1,:,:][:,None,:,:]
     
     #encoder altitude
     #level 1
-    a1 = self.a2(self.a1(alt))
+    a1 = self.sca2(self.ca1(alt))
     
     #level 2
-    a2= self.a4(self.a3(a1))
+    a2= self.sca4(self.ca3(a1))
     
     #encoder visual
     #level 1
-    x1 = self.c2(self.c1(rad))
+    x1 = self.sc2(self.c1(rad))
     
     #level 2
-    x2= self.c4(self.c3(x1 + a1))
+    x2= self.sc4(self.c3(x1 + a1))
     
     #level 3
     x4 = self.c5(x2 + a2)
@@ -230,15 +234,29 @@ class Discriminator(nn.Module):
     
     self.sigm = nn.Sigmoid()
     
-    # here the convolutions don't change the width and height, only the number of channels
-    self.fc1 = nn.Sequential(nn.Conv2d(16, 16, 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
-    self.fc2 = nn.Sequential(nn.Conv2d(16, 8, 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(8),nn.ReLU(True))
-    self.fc3 = nn.Sequential(nn.Conv2d(8, 5, 1, padding=0, padding_mode='reflect')) #conv (1x1)
-
+    self.softm = nn.Softmax(dim=1)
+    
+    # convolution steps
+    self.sc1 = nn.Sequential(nn.Conv2d(16, 16, 4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
+    self.c1 = nn.Sequential(nn.Conv2d(16, 16, 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
+    self.sc2 = nn.Sequential(nn.Conv2d(16, 16, 4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
+    self.c2 = nn.Sequential(nn.Conv2d(16, 16, 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
+    self.sc3 = nn.Sequential(nn.Conv2d(16, 16, 4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
+    self.c3 = nn.Sequential(nn.Conv2d(16, 16, 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
+    
+    # FC layers
+    self.lin = nn.Sequential(nn.Linear(16, 16),nn.BatchNorm1d(16),nn.ReLU(True))
+    self.lin2 = nn.Sequential(nn.Linear(16, 5),nn.BatchNorm1d(5),nn.ReLU(True))
+    
     # initiating weights
-    self.fc1[0].apply(self.init_weights)
-    self.fc2[0].apply(self.init_weights)
-    self.fc3[0].apply(self.init_weights)
+    self.sc1[0].apply(self.init_weights)
+    self.c1[0].apply(self.init_weights)
+    self.sc2[0].apply(self.init_weights)
+    self.c2[0].apply(self.init_weights)
+    self.sc3[0].apply(self.init_weights)
+    self.c3[0].apply(self.init_weights)
+    self.lin[0].apply(self.init_weights)
+    self.lin2[0].apply(self.init_weights)
     
     self.cuda()
     
@@ -246,15 +264,43 @@ class Discriminator(nn.Module):
       nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
     
     
-  def forward(self, x):
+  def forward(self, code):
     """
     here x is the input
     """
     
-    # applying the different layers
-    x1 = self.fc3(self.fc2(self.fc1(x)))
+    # applying the convolution layers
+    x1 = self.c1(self.sc1(code))
+    x2 = self.c2(self.sc2(x1))
+    x3 = self.c3(self.sc3(x2))
+    
+    # performing a mean pool
+    m1 = torch.mean(x3, dim=-1)
+    m2 = torch.mean(m1, dim=-1)
+    
+    # FC layers
+    x6 = self.lin2(self.lin(m2))
     
     # sigmoid activation function
-    out = self.sigm(x1)
+    out = self.softm(x6)
 
     return out
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

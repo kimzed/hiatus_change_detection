@@ -23,6 +23,8 @@ os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 import utils as fun
 import model as mod
 import train as train
+import evaluate as eval_model
+import metrics as fun_metrics
 
 """
 
@@ -40,7 +42,7 @@ list_files = os.listdir()
 list_files.sort(reverse=True)
 
 # storing our rasters per year in a dictionary
-s_rasters_clipped = {"1954":[],"1966":[], "1970":[], "1978":[], "1989":[]}
+s_rasters_clipped = {"1966":[], "1970":[]}
 
 # loading the list for the ground truth
 gt = []
@@ -61,7 +63,7 @@ for year in s_rasters_clipped:
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection/data/GT_np")
 
 # dict to store our GT rasters
-gt_change ={"1954":[], "1966":[], "1970":[], "1978":[], "1989":[]}
+gt_change = {"1954":[], "1989":[]}
 
 # getting the list of the files
 list_files_gt = os.listdir()
@@ -144,7 +146,7 @@ load_model = False
 
 ## working with tensorboard
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
-writer = SummaryWriter('runs/2311_2_testingcm')
+writer = SummaryWriter('runs/2611_1_test')
 
 if load_model:
     args = mock.Mock() 
@@ -159,7 +161,7 @@ if load_model:
 else:
     #stores the parameters
     args = mock.Mock() 
-    args.n_epoch = 100
+    args.n_epoch = 20
     args.batch_size = 92
     args.n_channel = 1
     args.conv_width = [8,8,16,16,16,16]
@@ -199,8 +201,8 @@ fun.view_u(datasets["train"], trained_model, random.randint(0, 900))
 
 # visualizing embedding inside the model
 nb = random.randint(0, 900)
-fun.view_u(s_rasters_clipped["1954"], trained_model, nb)
-fun.view_u(s_rasters_clipped["1970"], trained_model, nb)
+fun.view_u(s_rasters_clipped["1966"], trained_model, nb, data_fusion=False)
+fun.view_u(s_rasters_clipped["1970"], trained_model, nb, data_fusion=False)
 
 """
 
@@ -305,50 +307,77 @@ Performing change detection analysis on actual data
 """
 ind = random.randint(0, 900)
 
-# interesting nbs : 783
-
-## running cd model
-rast1 = s_rasters_clipped["1954"][ind][None,:,:,:]
-rast2 = s_rasters_clipped["1970"][ind][None,:,:,:]
+# interesting nbs : 783, 439,746, 201 706
 
 ind = random.randint(0, 900)
 print(ind)
-fun.visualize(s_rasters_clipped["1954"][ind][:,:,:], third_dim=False)
+fun.visualize(s_rasters_clipped["1954"][304][:,:,:], third_dim=False)
 fun.visualize(s_rasters_clipped["1970"][ind][:,:,:], third_dim=False)
 
-    
-threshold = 4.5
+nb = 439
+ind = nb
+## running cd model
+rast1 = s_rasters_clipped["1954"][nb][None,:,:,:]
+rast2 = s_rasters_clipped["1989"][nb][None,:,:,:]
+
+threshold = 8
 
 # computing change raster
-cmap, dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model, threshold, visualization=True)
+cmap, dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model, visualization=True)
 
-# visualizing result
-fun.visualize(rast1[:,:,:].squeeze(), third_dim = False)
-fun.visualize(rast2[:,:,:].squeeze(), third_dim = False)
-
-# visualize the binary change detection raster
-fun.view_embeddings(code1)
-fun.view_embeddings(code2)
-
+# visualising the part of the code which is not adversarial
+fun.view_embeddings(code1[:,8:,:,:])
 
 """
 
 Checking performance on ground truth change maps
+We output the code subtraction with the model and on the baseline (simple
+rasters subtraction)
 
 """
 
-# making a list of possible thresholds
-thresholds = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 6, 8, 9, 10, 11, 100]
-thresholds = [0, 100]
-    
+# getting confusion matrix on 
+# making a list of possible thresholds for the confusion matrix
+thresholds = [0, 1, 2, 3, 4, 5, 6,7, 8, 9, 10, 11]
+
+## evaluating the model
+pred, y = eval_model.evaluate_model(gt_change, trained_model)
+
+# calculating the confusion matrix
 for thresh in thresholds:
     
-    # computinf accuracy on the list of rasters
-    m = fun.accuracy_model(gt_change, trained_model, thresh)
+    # converting to binary
+    binary_vec = fun.convert_binary(pred, thresh)
     
-    print("Threshold is "+str(thresh))
-    print(m.CM)
-    print('IoU : {:3.2f}%'.format(m.class_IoU()))
-    print('Overall accuracy : {:3.2f}%'.format(m.overall_accuracy()*100))
-    print('\n')
+    # visualizing the confusion matrix
+    fun_metrics.confusion_matrix_visualize(binary_vec, y, thresh)
+
+# ROC
+thresholds = fun_metrics.visualize_roc(y, pred, return_thresh=True)
+
+## evaluate the baseline
+# get prediction and targets with the baseline
+pred_alt, pred_rad, y = eval_model.evaluate_baseline(gt_change)
+
+## making the ROC curve
+thresholds = fun_metrics.visualize_roc(y, pred_alt, return_thresh=True)
+fun_metrics.visualize_roc(y, pred_rad)
+
+# calculating the confusion matrix for alt
+for thresh in thresholds:
+    
+    # converting to binary
+    binary_vec_alt = fun.convert_binary(pred_alt, thresh)
+    
+    # visualizing the confusion matrix
+    fun_metrics.confusion_matrix_visualize(binary_vec_alt, y, thresh)
+
+# calculating the confusion matrix for radiometry
+for thresh in thresholds:
+    
+    # converting to binary
+    binary_vec_alt = fun.convert_binary(pred_alt, thresh)
+    
+    # visualizing the confusion matrix
+    fun_metrics.confusion_matrix_visualize(binary_vec_alt, y, thresh)
 

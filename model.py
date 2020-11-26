@@ -79,7 +79,7 @@ class Encoder(nn.Module):
     self.c3 = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.LeakyReLU(True))
     self.sc4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
     self.c5 = nn.Sequential(nn.Conv2d(encoder_conv_width[3],encoder_conv_width[4],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[4]),nn.LeakyReLU(True))
-    
+   
     # network for the altitude
     self.ca1 = nn.Sequential(nn.Conv2d(n_channels, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
     self.sca2 = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
@@ -106,7 +106,7 @@ class Encoder(nn.Module):
     #nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity="leaky_relu")
     nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
     
-  def forward(self,input):
+  def forward(self,input, data_fusion=True):
     """
     the function called to run inference
     after the model is created as an object 
@@ -130,11 +130,19 @@ class Encoder(nn.Module):
     #level 1
     x1 = self.sc2(self.c1(rad))
     
-    #level 2
-    x2= self.sc4(self.c3(x1 + a1))
-    
-    #level 3
-    x4 = self.c5(x2 + a2)
+    if data_fusion:
+        #level 2
+        x2= self.sc4(self.c3(x1 + a1))
+        
+        #level 3
+        x4 = self.c5(x2 + a2)
+        
+    else:
+        #level 2
+        x2= self.sc4(self.c3(x1))
+        
+        #level 3
+        x4 = self.c5(x2)
     
     #out = torch.cat((y[:,0:2,:,:], self.sfplus(y[:,None,2,:,:]), self.sfplus(y[:,None,3,:,:])), 1)
     
@@ -269,8 +277,11 @@ class Discriminator(nn.Module):
     here x is the input
     """
     
+    # splitting the code
+    code_cl = code[:,:,:,:]
+    
     # applying the convolution layers
-    x1 = self.c1(self.sc1(code))
+    x1 = self.c1(self.sc1(code_cl))
     x2 = self.c2(self.sc2(x1))
     x3 = self.c3(self.sc3(x2))
     
@@ -285,22 +296,4 @@ class Discriminator(nn.Module):
     out = self.softm(x6)
 
     return out
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

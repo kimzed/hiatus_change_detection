@@ -1,4 +1,4 @@
-# Project hiatus
+e# Project hiatus
 # script used to pre-process the data
 # 16/11/2020
 # Cédric BARON
@@ -143,22 +143,34 @@ using z-scores and removing minimum altitude for mns
 # normalizing
 s_rasters_clipped = {}
 
+# list to extract all the mns rasters
+rasters_alt = []
+
 for year in rasters_clipped:
     
     # extracting alt and rad
     alt_rasts = [rast[0] for rast in rasters_clipped[year]]
-    rad_rasts = [rast[1] for rast in rasters_clipped[year]]
-    
     # subtracting min from alt rasters
     alt_rasts = [rast - np.min(rast) for rast in alt_rasts]
     
+    rasters_alt += alt_rasts.copy()
+
+# getting the total of rasters
+total_rasters_alt = np.stack(rasters_alt, axis=0)
+
+mu_alt = np.mean(total_rasters_alt)
+std_alt = np.std(total_rasters_alt)
+
+for year in rasters_clipped:
+    
+    # extracting alt and rad
+    rad_rasts = [rast[1] for rast in rasters_clipped[year]]
+    alt_rasts = [rast[0] for rast in rasters_clipped[year]]
+    
     # getting the total of rasters
-    total_rasters_alt = np.stack(alt_rasts, axis=0)
     total_rasters_rad = np.stack(rad_rasts, axis=0)
     
     # getting stat values
-    mu_alt = np.mean(total_rasters_alt)
-    std_alt = np.std(total_rasters_alt)
     mu_rad = np.mean(total_rasters_rad)
     std_rad = np.std(total_rasters_alt)
     
@@ -170,8 +182,9 @@ for year in rasters_clipped:
         non_zero_rad = np.nonzero(rad_rasts[i])
         
         # normalizing
-        alt_rasts[i][non_zero_alt] = (alt_rasts[i][non_zero_alt] - np.mean(alt_rasts[i][non_zero_alt])) / np.std(alt_rasts[i][non_zero_alt])
+        #alt_rasts[i][non_zero_alt] = (alt_rasts[i][non_zero_alt] - np.mean(alt_rasts[i][non_zero_alt])) / np.std(alt_rasts[i][non_zero_alt])
         rad_rasts[i][non_zero_rad] = (rad_rasts[i][non_zero_rad] - np.mean(rad_rasts[i][non_zero_rad])) / np.std(rad_rasts[i][non_zero_rad])
+        alt_rasts[i][non_zero_alt] = (alt_rasts[i][non_zero_alt] - mu_alt) / std_alt
                     
                     
     #alt_rasts = [(rast-np.min(rast[np.nonzero(rast)])) / (np.max(rast[np.nonzero(rast)])-np.min(rast[np.nonzero(rast)])) for rast in alt_rasts]
@@ -214,7 +227,7 @@ gt = gt.reshape(gt.shape[0]*gt.shape[1], gt.shape[2])
 gt = list(gt)
     
 # visualizing some cases
-for i in range(5, 6):
+for i in range(5,6):
     print(i)
     for year in s_rasters_clipped:
         fun.visualize(s_rasters_clipped[year][i].squeeze(), third_dim=False)
@@ -267,7 +280,8 @@ fun.visualize(s_rasters_clipped["1970"][ind][:,:,:], third_dim=False)
 
 # interesting sample
 sample_id = [121, 833, 127, 592, 851, 107, 480, 700, 45, 465,
-             230, 416, 844, 237, 636, 13, 518, 298, 707, 576]
+             230, 416, 844, 237, 636, 13, 518, 298, 707, 576,
+             40, 97, 212, 391, 402, 428, 464, 515, 565, 581, 689]
 
 # loading gt boxes
 sample_box = [boxes[i] for i in sample_id]
@@ -409,12 +423,8 @@ Loading the ground truth (classes)
 """
 
 
+# change working directory
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection/data/GT_class")
-
-# index of the samples we are interested in
-sample_shapes = [121, 833, 127, 592, 851, 107, 480, 700, 45, 465,
-                 230, 416, 844, 237, 636, 13, 518, 298, 707, 576]
-
 
 # loading the GT tifs
 # list rasters
@@ -431,8 +441,9 @@ gt_rasters = {"1954":[],"1966":[], "1970":[], "1978":[], "1989":[]}
 gt_clipped = {"1954":[],"1966":[], "1970":[], "1978":[], "1989":[]}
 
 # loading gt boxes
-sample_box = [boxes[i] for i in sample_shapes]
-sample_box_c = [sample_box[i][0] for i in range(len(sample_box))]
+sample_box = [boxes[i] for i in sample_id]
+sample_box_c = [sample_box[i][0] for i in range(len(sample_id))]
+
 
 # loading the rasters
 for file, year in zip(list_tifs, gt_rasters):
@@ -441,6 +452,7 @@ for file, year in zip(list_tifs, gt_rasters):
             
     gt_rasters[year].append(ortho)
 
+# loading the rasters
 for ind in sample_id:
     
     # loading the box
@@ -449,7 +461,7 @@ for ind in sample_id:
     for year in gt_rasters:
                     
         # cropping the rasters
-        out_img, out_transform = mask(dataset=gt_rasters[year][0], all_touched=True,
+        out_img, out_transform = rasterio.mask.mask(dataset=gt_rasters[year][0], all_touched=True,
                                                   shapes=box, crop=True)
         
         # changing resolution to 128*128
@@ -462,7 +474,7 @@ for ind in sample_id:
         
         # list rasters to stack up
         list_rast = [out_img_resh, alt_new, rad_new]
-        
+    
         stack_rast = np.stack(list_rast, axis=0)
         
         # saving the ground truth 

@@ -50,7 +50,7 @@ def train(model, args, datasets):
     # ============forward===========
     # compute the prediction
     pred = model.predict(tiles)
-    code = model.encoder(tiles)
+    code = model.encoder(tiles, data_fusion=False)
     
     # boolean matrixes to remove effect of no data
     bool_matr_alt = tiles[:,None,0,:,:] != 0
@@ -80,7 +80,7 @@ def train(model, args, datasets):
     
     if adver:
         
-        nb_loop = 1
+        nb_loop = 10
         
         for i in range(nb_loop):
         
@@ -130,15 +130,15 @@ def train(model, args, datasets):
     
     if auto_encod:
         
-        code = model.encoder(tiles)
+        code = model.encoder(tiles, data_fusion=False)
         pred_year = model.discr(code)
         loss_disc = loss_fun.CrossEntropy(pred_year, labels)
         
         # total loss
         if adver:
-            loss =  loss_alt + loss_rad -  1 * loss_disc 
+            loss =  loss_rad -  10 * loss_disc # +loss_alt 
         else:
-            loss =  loss_alt + loss_rad
+            loss =  loss_rad # loss_alt
             
         loss_data.add(loss.item())
         
@@ -148,7 +148,7 @@ def train(model, args, datasets):
         model.opti_AE.step()
     
     # storing the loss values
-    loss_data_alt.add(loss_alt.item())
+    #loss_data_alt.add(loss_alt.item())
     loss_data_rad.add(loss_rad.item())
     #loss_data_alt.add(loss_alt.cpu().detach())
     #loss_data_rad.add(loss_rad.cpu().detach())
@@ -191,7 +191,7 @@ def train_full(args, datasets, writer):
   NORMALCOLOR = '\033[0m'
   
   # storing losses to display them eventually
-  losses = {"tot":[], "mns":[], "alt":[]}
+  losses = {"tot":[], "mns":[], "alt":[], "accu":[]}
   
   for i_epoch in range(args.n_epoch):
       
@@ -208,6 +208,7 @@ def train_full(args, datasets, writer):
     losses["tot"].append(loss_train)
     losses["mns"].append(loss_alt)
     losses["alt"].append(loss_rad)
+    losses["accu"].append(accu_discr)
     
     print(TRAINCOLOR)
     print('Epoch %3d -> Train Loss: %1.4f' % (i_epoch, loss_train) + NORMALCOLOR)
@@ -254,6 +255,12 @@ def train_full(args, datasets, writer):
   plt.xlabel('epoch')
   plt.ylabel('loss')
   plt.plot(range(len(losses["alt"])), losses["alt"])
+  plt.show()
+  
+  plt.title('accuracy of the discriminator')
+  plt.xlabel('epoch')
+  plt.ylabel('accuracy')
+  plt.plot(range(len(losses["accu"])), losses["accu"])
   plt.show()
   
   return model, discr

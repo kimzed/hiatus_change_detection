@@ -1,4 +1,4 @@
-e# Project hiatus
+# Project hiatus
 # script used to pre-process the data
 # 16/11/2020
 # Cédric BARON

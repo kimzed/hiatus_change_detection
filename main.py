@@ -4,7 +4,6 @@
 # Cédric BARON
 
 # loading required packages
-import numpy as np
 import torch
 import mock
 from sklearn.model_selection import train_test_split
@@ -14,8 +13,8 @@ from torch.utils.tensorboard import SummaryWriter
 from numpy import load
 from rasterio.plot import show
 import os
+import numpy as np
 
-import imageio
 
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 
@@ -42,7 +41,7 @@ list_files = os.listdir()
 list_files.sort(reverse=True)
 
 # storing our rasters per year in a dictionary
-s_rasters_clipped = {"1966":[], "1970":[]}
+s_rasters_clipped = {"1954":[], "1966":[], "1970":[], "1978":[], "1989":[]}
 
 # loading the list for the ground truth
 gt = []
@@ -63,7 +62,7 @@ for year in s_rasters_clipped:
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection/data/GT_np")
 
 # dict to store our GT rasters
-gt_change = {"1954":[], "1989":[]}
+gt_change = {"1954":[], "1966":[], "1970":[], "1978":[], "1989":[]}
 
 # getting the list of the files
 list_files_gt = os.listdir()
@@ -141,21 +140,26 @@ the model is made in the functions file
 
 """
 
+# setting parameters of the model
+data_fusion = True
+adversarial = True
+defiance = False
+
 ## loading the model in case we have it already
 load_model = False
 
 ## working with tensorboard
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
-writer = SummaryWriter('runs/2611_1_test')
+writer = SummaryWriter('runs/0212_1_test')
 
 if load_model:
     args = mock.Mock() 
     args.n_channel = 1
-    args.conv_width = [8,4,8,8,16,8]
-    args.dconv_width = [8,4,8,4]
-    trained_model = mod.SegNet(args.n_channel, args.conv_width, args.dconv_width)
-    trained_model.load_state_dict(torch.load("models/AE_D_model"))
-    trained_model.eval()
+    args.conv_width = [8,8,16,16,16,16]
+    args.dconv_width = [8,8,8,8]
+    trained_model.encoder = mod.Encoder(args.n_channel, args.conv_width)
+    trained_model.encoder.load_state_dict(torch.load("models/0212_advautoenc_20epoch"))
+    trained_model.encoder.eval()
 
 # otherwise, train it
 else:
@@ -169,15 +173,22 @@ else:
     args.cuda = 1
     args.lr_steps = [50, 70, 90]
     args.lr_decay = 0.5
-    args.lr = 0.005
-    trained_model, trained_discr = train.train_full(args, train_data, writer)
+    args.lr = 0.05
+    trained_model = train.train_full(args, train_data, writer,
+                                                    data_fusion=data_fusion,
+                                                    adver=adversarial,
+                                                    defiance=defiance)
+
+# getting into eval() mode
+trained_model.encoder.eval()
+trained_model.decoder.eval()
 
 ## saving the model
 save_model = False
 
 # saving the model
 if save_model:
-    torch.save(trained_model.state_dict(), "models/pixel_wise_100")
+    torch.save(trained_model.encoder.state_dict(), "models/0212_advautoenc_20epoch")
 
 ## visualizing the result
 for i in range(5):
@@ -187,8 +198,8 @@ for i in range(5):
     fun.visualize(raster, third_dim=False)
     
     # visualizing prediction
-    pred = trained_model.predict(raster[None,:,:,:].float().cuda())[0].cpu()
-    fun.visualize(pred.detach().numpy().squeeze(), third_dim=False)
+    pred = trained_model.predict(raster[None,:,:,:].float().cuda(), data_fusion=data_fusion)[0].cpu()
+    fun.visualize(pred.detach().numpy().squeeze(), third_dim=False, defiance=defiance)
 
 '''
 
@@ -197,12 +208,12 @@ Now we are going to visualize various embeddings in the model itself
 '''
 
 # visualizing for a random index number the inner embeddings
-fun.view_u(datasets["train"], trained_model, random.randint(0, 900))
+fun.view_u(datasets["train"], trained_model, random.randint(0, 900), data_fusion=data_fusion)
 
 # visualizing embedding inside the model
 nb = random.randint(0, 900)
-fun.view_u(s_rasters_clipped["1966"], trained_model, nb, data_fusion=False)
-fun.view_u(s_rasters_clipped["1970"], trained_model, nb, data_fusion=False)
+fun.view_u(s_rasters_clipped["1966"], trained_model, nb, data_fusion=data_fusion)
+fun.view_u(s_rasters_clipped["1970"], trained_model, nb, data_fusion=data_fusion)
 
 """
 
@@ -245,88 +256,40 @@ for i in range(900):
         count += 1   
         labs.append(label)
         
-"""
 
-Performing change detection analysis on manually modified data
-
-"""
-
-### working on data manipulation to test the model
-imageio.imwrite('house.jpg', s_rasters_clipped["1966"][12][1,:,:])
-imageio.imwrite('field.jpg', s_rasters_clipped["1966"][14][1,:,:])
-imageio.imwrite('house_alt.jpg', s_rasters_clipped["1966"][12][0,:,:])
-imageio.imwrite('field_alt.jpg', s_rasters_clipped["1966"][14][0,:,:])
-    
-# importing modified image
-os.chdir("/home/adminlocal/Bureau/project_hiatus/data")  
-field = imageio.imread('raster_modified/field_house.jpg')
-field.tofile('field_house.raw') # Create raw file
-field_house_raw = np.fromfile('field_house.raw', dtype=np.uint8)
-field_house_raw.shape
-field_house_raw.shape = (128,128)
-
-field = imageio.imread('raster_modified/field.jpg')
-field.tofile('field.raw') # Create raw file
-field_raw = np.fromfile('field.raw', dtype=np.uint8)
-field_raw.shape
-field_raw.shape = (128,128)
-
-
-field = imageio.imread('raster_modified/field_house_alt.jpg')
-field.tofile('field_house_alt.raw') # Create raw file
-field_house_alt = np.fromfile('field_house_alt.raw', dtype=np.uint8)
-field_house_alt.shape
-field_house_alt.shape = (128,128)
-
-field = imageio.imread('raster_modified/field_alt.jpg')
-field.tofile('field_alt.raw') # Create raw file
-field_alt = np.fromfile('field_alt.raw', dtype=np.uint8)
-field_alt.shape
-field_alt.shape = (128,128)
-
-field_raw = np.stack((field_alt, field_raw), axis=0)
-field_house_raw = np.stack((field_house_alt, field_house_raw), axis=0)
-    
-## running cd model
-rast1 = field_raw[None,:,:,:]
-rast2 = field_house_raw[None,:,:,:]
-threshold = 3
-
-# computing change raster
-dccode, code1, code2, cmap = fun.change_detection(rast1, rast2, trained_model, threshold)
-
-# visualizing result
-fun.visualize(rast1[:,:,:].squeeze(), third_dim = False)
-fun.visualize(rast2[:,:,:].squeeze(), third_dim = False)
-fun.view_embeddings(dccode)
 
 """
 
 Performing change detection analysis on actual data
 
 """
+
 ind = random.randint(0, 900)
 
-# interesting nbs : 783, 439,746, 201 706
+# interesting nbs 54-70: 783, 439,746, 201 706 715
+# no change 66-70: 245 799 406 437, 715
 
 ind = random.randint(0, 900)
 print(ind)
-fun.visualize(s_rasters_clipped["1954"][304][:,:,:], third_dim=False)
+fun.visualize(s_rasters_clipped["1966"][ind][:,:,:], third_dim=False)
 fun.visualize(s_rasters_clipped["1970"][ind][:,:,:], third_dim=False)
 
 nb = 439
 ind = nb
 ## running cd model
 rast1 = s_rasters_clipped["1954"][nb][None,:,:,:]
-rast2 = s_rasters_clipped["1989"][nb][None,:,:,:]
+rast2 = s_rasters_clipped["1970"][nb][None,:,:,:]
 
-threshold = 8
+threshold = 1
 
 # computing change raster
-cmap, dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model, visualization=True)
+cmap, dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model,
+                                                  visualization=True, data_fusion=True,
+                                                  threshold=threshold)
 
 # visualising the part of the code which is not adversarial
 fun.view_embeddings(code1[:,8:,:,:])
+
 
 """
 
@@ -338,10 +301,10 @@ rasters subtraction)
 
 # getting confusion matrix on 
 # making a list of possible thresholds for the confusion matrix
-thresholds = [0, 1, 2, 3, 4, 5, 6,7, 8, 9, 10, 11]
+thresholds = [0, 0.46, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.25, 2.5, 2.75, 3]
 
 ## evaluating the model
-pred, y = eval_model.evaluate_model(gt_change, trained_model)
+pred, y, classes = eval_model.evaluate_model(gt_change, trained_model, data_fusion=data_fusion)
 
 # calculating the confusion matrix
 for thresh in thresholds:
@@ -351,16 +314,19 @@ for thresh in thresholds:
     
     # visualizing the confusion matrix
     fun_metrics.confusion_matrix_visualize(binary_vec, y, thresh)
+    
+    # evaluating the precision per class
+    fun_metrics.class_precision(binary_vec, y, classes)
 
 # ROC
-thresholds = fun_metrics.visualize_roc(y, pred, return_thresh=True)
+fun_metrics.visualize_roc(y, pred, return_thresh=False)
 
 ## evaluate the baseline
 # get prediction and targets with the baseline
 pred_alt, pred_rad, y = eval_model.evaluate_baseline(gt_change)
 
 ## making the ROC curve
-thresholds = fun_metrics.visualize_roc(y, pred_alt, return_thresh=True)
+thresh = fun_metrics.visualize_roc(y, pred_alt, return_thresh=True)
 fun_metrics.visualize_roc(y, pred_rad)
 
 # calculating the confusion matrix for alt
@@ -371,13 +337,115 @@ for thresh in thresholds:
     
     # visualizing the confusion matrix
     fun_metrics.confusion_matrix_visualize(binary_vec_alt, y, thresh)
+    
+    # evaluating the precision per class
+    fun_metrics.class_precision(binary_vec_alt, y, classes)
 
 # calculating the confusion matrix for radiometry
 for thresh in thresholds:
     
     # converting to binary
-    binary_vec_alt = fun.convert_binary(pred_alt, thresh)
+    binary_vec_rad = fun.convert_binary(pred_rad, thresh)
     
     # visualizing the confusion matrix
-    fun_metrics.confusion_matrix_visualize(binary_vec_alt, y, thresh)
+    fun_metrics.confusion_matrix_visualize(binary_vec_rad, y, thresh)
+
+"""
+
+Visualizing result for the ground truth
+
+"""
+
+for i in range(10, 20):
+    # loading the raster
+    nb = i
+    rast1 = gt_change["1954"][nb][None,1:,:,:]
+    rast2 = gt_change["1970"][nb][None,1:,:,:]
+    
+    # loading the gt
+    gts = [gt_change["1954"][nb][None,0,:,:].squeeze(), 
+           gt_change["1970"][nb][None,0,:,:].squeeze()]
+    
+    
+    cmap, dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model,
+                                                      visualization=True, data_fusion=True,
+                                                      threshold=threshold, gts=gts)
+    
+    
+"""
+
+Performing normalized mutual information for continuous variables
+
+"""
+    
+## extracting the codes
+# load list of codes
+list_codes = []
+
+# convert the rasters into codes
+for year in gt_change:
+    list_codes += [trained_model.encoder(fun.torch_raster(rast[None,1:,:,:])) for rast in gt_change[year]]
+
+# convert them back to numpy matrixes
+np_codes = [rast.detach().cpu().numpy() for rast in list_codes]
+    
+# stacking into one matrix
+matrix_codes = np.stack(np_codes, axis=0)
+matrix_codes = matrix_codes.squeeze()
+
+# reshaping
+flat_codes = matrix_codes.transpose(0,2,3,1).reshape((155*32*32, 16))
+
+## extracting the labels
+# load list of labels
+list_labels = []
+
+# loading the labels
+for year in gt_change:
+    
+    # reshaping and loading in the list
+    for rast in gt_change[year]:
+        
+        # loading the labels
+        rast_labels = rast[0,:,:]
+        
+        # reshaping
+        rast_resh =  fun.regrid(rast_labels.reshape(rast.shape[1:]), 32, 32, "nearest")
+        rast_resh = np.rint(rast_resh)
+        
+        # storing into our list
+        list_labels.append(rast_resh)
+
+
+# stacking into one matrix
+matrix_labels = np.stack(list_labels, axis=0)
+
+# reshaping
+flat_labels = matrix_labels.reshape((155*32*32))
+
+## removing the no data values
+# getting the nodata matrix
+data_index = flat_labels != 0
+
+# loading codes and labels with mask
+labels_clean = flat_labels[data_index]
+codes_clean = flat_codes[data_index, :]
+
+## getting the number of pixels per classes
+nb_build = np.count_nonzero(labels_clean == 1)
+nb_road = np.count_nonzero(labels_clean == 2)
+nb_field = np.count_nonzero(labels_clean == 3)
+nb_classes = (nb_build, nb_road, nb_field)
+
+## spliting the dataset according to the class
+# loading the data
+buildings_idx = flat_labels == 0
+roads_idx = flat_labels == 1
+fields_idx =  flat_labels == 2
+
+# putting into a list
+classes_idx = [buildings_idx, roads_idx, fields_idx]
+
+fun_metrics.NMI_continuous_discrete(labels_clean, codes_clean, nb_classes, [1,2,3])
+
 

@@ -17,7 +17,7 @@ os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 import loss as loss_fun
 import model as mod
 
-def train(model, args, datasets):
+def train(model, args, datasets, data_fusion=True, adver=True, defiance=False):
   """
   train for one epoch
   args are some parameters of our model, e.g. batch size or n_class, etc.
@@ -49,8 +49,8 @@ def train(model, args, datasets):
     
     # ============forward===========
     # compute the prediction
-    pred = model.predict(tiles)
-    code = model.encoder(tiles, data_fusion=False)
+    pred = model.predict(tiles, data_fusion=data_fusion, defiance=defiance)
+    code = model.encoder(tiles, data_fusion=data_fusion)
     
     # boolean matrixes to remove effect of no data
     bool_matr_alt = tiles[:,None,0,:,:] != 0
@@ -62,25 +62,29 @@ def train(model, args, datasets):
     pred_rad = pred[:,None,1,:,:][bool_matr_rad]
     tiles_rad = tiles[:,None,1,:,:][bool_matr_rad]
     
-    # loading defiance matrix
-    #d_mat_alt = pred[:,None,2,:,:][bool_matr_alt]
-    #d_mat_rad = pred[:,None,3,:,:][bool_matr_rad]
+    ## defiance part
+    if defiance:
+        # loading defiance matrix
+        d_mat_alt = pred[:,None,2,:,:][bool_matr_alt]
+        d_mat_rad = pred[:,None,3,:,:][bool_matr_rad]
+        
+        # calculating the loss
+        eps = 10**-6
+        loss_alt = torch.mean((tiles_alt - pred_alt)**2 / (2*d_mat_alt+eps) + (1/2)*torch.log(d_mat_alt+eps))
+        loss_rad = torch.mean((tiles_rad - pred_rad)**2 / (2*d_mat_rad+eps) + (1/2)*torch.log(d_mat_rad+eps))
+    else:
+        ## sum of squares
+        loss_alt = loss_fun.MeanSquareError(pred_alt, tiles_alt)
+        loss_rad = loss_fun.MeanSquareError(pred_rad, tiles_rad)
     
-    ## sum of squares
-    loss_alt = loss_fun.MeanSquareError(pred_alt, tiles_alt)
-    loss_rad = loss_fun.MeanSquareError(pred_rad, tiles_rad)
     
-    #loss_alt = torch.mean((tiles_alt - pred_alt)**2 / (2*d_mat_alt**2+eps) + 2*torch.log(d_mat_alt+eps))
-    #loss_rad = torch.mean((tiles_rad - pred_rad)**2 / (2*d_mat_rad**2+eps) + 2*torch.log(d_mat_rad+eps))
     
     # applying arg max on labels for cross entropy
     _, labels = labels.max(dim=1)
     
-    adver = True
-    
     if adver:
         
-        nb_loop = 10
+        nb_loop = 1
         
         for i in range(nb_loop):
         
@@ -130,15 +134,19 @@ def train(model, args, datasets):
     
     if auto_encod:
         
-        code = model.encoder(tiles, data_fusion=False)
+        code = model.encoder(tiles, data_fusion=data_fusion)
         pred_year = model.discr(code)
         loss_disc = loss_fun.CrossEntropy(pred_year, labels)
         
         # total loss
-        if adver:
-            loss =  loss_rad -  10 * loss_disc # +loss_alt 
+        if adver and data_fusion:
+            loss =  loss_rad + loss_alt -  1 * loss_disc   
+        elif data_fusion:
+            loss =  loss_rad + loss_alt
+        elif adver:
+            loss =  loss_rad -  1 * loss_disc
         else:
-            loss =  loss_rad # loss_alt
+            loss = loss_rad
             
         loss_data.add(loss.item())
         
@@ -148,7 +156,7 @@ def train(model, args, datasets):
         model.opti_AE.step()
     
     # storing the loss values
-    #loss_data_alt.add(loss_alt.item())
+    loss_data_alt.add(loss_alt.item())
     loss_data_rad.add(loss_rad.item())
     #loss_data_alt.add(loss_alt.cpu().detach())
     #loss_data_rad.add(loss_rad.cpu().detach())
@@ -165,7 +173,7 @@ def train(model, args, datasets):
   return result
 
 
-def train_full(args, datasets, writer):
+def train_full(args, datasets, writer, data_fusion=True, adver=True, defiance=False):
   """
   The full training loop
   """
@@ -198,7 +206,10 @@ def train_full(args, datasets, writer):
     #train one epoch
     loss_train, nb_batches, loss_alt, loss_rad, loss_disc, accu_discr = train(model,
                                                                               args,
-                                                                              datasets)
+                                                                              datasets,
+                                                                              data_fusion=data_fusion,
+                                                                              adver=adver,
+                                                                              defiance=defiance)
     
     # updating the learning rate
     scheduler_D.step()
@@ -263,4 +274,4 @@ def train_full(args, datasets, writer):
   plt.plot(range(len(losses["accu"])), losses["accu"])
   plt.show()
   
-  return model, discr
+  return model

@@ -86,8 +86,6 @@ m_samples = []
 for year in s_rasters_clipped:
     
     m_samples += s_rasters_clipped[year]
-    
-    print(year)
 
 def train_val_dataset(dataset, gt, val_split=0.25):
     """
@@ -144,6 +142,7 @@ the model is made in the functions file
 data_fusion = True
 adversarial = True
 defiance = False
+split = True
 
 ## loading the model in case we have it already
 load_model = False
@@ -151,6 +150,9 @@ load_model = False
 ## working with tensorboard
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 writer = SummaryWriter('runs/0212_1_test')
+
+# loading a raster to check the models updates
+ex_raster = torch.from_numpy(s_rasters_clipped["1970"][715][None,:,:,:]).cuda().float()
 
 if load_model:
     args = mock.Mock() 
@@ -164,7 +166,7 @@ if load_model:
 # otherwise, train it
 else:
     #stores the parameters
-    args = mock.Mock() 
+    args = mock.Mock()
     args.n_epoch = 20
     args.batch_size = 92
     args.n_channel = 1
@@ -174,21 +176,22 @@ else:
     args.lr_steps = [50, 70, 90]
     args.lr_decay = 0.5
     args.lr = 0.05
-    trained_model = train.train_full(args, train_data, writer,
+    trained_model = train.train_full(args, train_data, writer, gt_change,
+                                                    ex_raster,
                                                     data_fusion=data_fusion,
                                                     adver=adversarial,
-                                                    defiance=defiance)
-
-# getting into eval() mode
-trained_model.encoder.eval()
-trained_model.decoder.eval()
+                                                    defiance=defiance,
+                                                    split=split)
+    # getting into eval() mode
+    trained_model.encoder.eval()
+    trained_model.decoder.eval()
 
 ## saving the model
 save_model = False
 
 # saving the model
 if save_model:
-    torch.save(trained_model.encoder.state_dict(), "models/0212_advautoenc_20epoch")
+    torch.save(trained_model.encoder.state_dict(), "models/0312_test")
 
 ## visualizing the result
 for i in range(5):
@@ -208,12 +211,15 @@ Now we are going to visualize various embeddings in the model itself
 '''
 
 # visualizing for a random index number the inner embeddings
-fun.view_u(datasets["train"], trained_model, random.randint(0, 900), data_fusion=data_fusion)
+fun.view_u(datasets["train"], trained_model, random.randint(0, 900),
+           data_fusion=data_fusion, split=split)
 
 # visualizing embedding inside the model
 nb = random.randint(0, 900)
-fun.view_u(s_rasters_clipped["1966"], trained_model, nb, data_fusion=data_fusion)
-fun.view_u(s_rasters_clipped["1970"], trained_model, nb, data_fusion=data_fusion)
+fun.view_u(s_rasters_clipped["1966"], trained_model, nb, data_fusion=data_fusion,
+           split=split)
+fun.view_u(s_rasters_clipped["1970"], trained_model, nb, data_fusion=data_fusion,
+           split=split)
 
 """
 
@@ -249,9 +255,10 @@ for i in range(900):
     if not matches:
         
         #print(i)
-        if label[0,1] < 0.99:
+        #if label[0,1] < 0.99:
+            
             # visualizing training raster
-            fun.visualize(raster, third_dim=False)
+            #fun.visualize(raster, third_dim=False)
         
         count += 1   
         labs.append(label)
@@ -274,10 +281,10 @@ print(ind)
 fun.visualize(s_rasters_clipped["1966"][ind][:,:,:], third_dim=False)
 fun.visualize(s_rasters_clipped["1970"][ind][:,:,:], third_dim=False)
 
-nb = 439
+nb = 715
 ind = nb
 ## running cd model
-rast1 = s_rasters_clipped["1954"][nb][None,:,:,:]
+rast1 = s_rasters_clipped["1966"][nb][None,:,:,:]
 rast2 = s_rasters_clipped["1970"][nb][None,:,:,:]
 
 threshold = 1
@@ -285,7 +292,7 @@ threshold = 1
 # computing change raster
 cmap, dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model,
                                                   visualization=True, data_fusion=True,
-                                                  threshold=threshold)
+                                                  threshold=threshold, split=split)
 
 # visualising the part of the code which is not adversarial
 fun.view_embeddings(code1[:,8:,:,:])
@@ -304,7 +311,9 @@ rasters subtraction)
 thresholds = [0, 0.46, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.25, 2.5, 2.75, 3]
 
 ## evaluating the model
-pred, y, classes = eval_model.evaluate_model(gt_change, trained_model, data_fusion=data_fusion)
+pred, y, classes = eval_model.evaluate_model(gt_change, trained_model,
+                                             data_fusion=data_fusion,
+                                             split=split)
 
 # calculating the confusion matrix
 for thresh in thresholds:
@@ -356,7 +365,7 @@ Visualizing result for the ground truth
 
 """
 
-for i in range(10, 20):
+for i in range(2,3):
     # loading the raster
     nb = i
     rast1 = gt_change["1954"][nb][None,1:,:,:]
@@ -439,13 +448,15 @@ nb_classes = (nb_build, nb_road, nb_field)
 
 ## spliting the dataset according to the class
 # loading the data
-buildings_idx = flat_labels == 0
-roads_idx = flat_labels == 1
-fields_idx =  flat_labels == 2
+buildings_idx = labels_clean == 1
+roads_idx = labels_clean == 2
+fields_idx =  labels_clean == 3
 
 # putting into a list
 classes_idx = [buildings_idx, roads_idx, fields_idx]
 
-fun_metrics.NMI_continuous_discrete(labels_clean, codes_clean, nb_classes, [1,2,3])
+# calculating the NMI
+fun_metrics.NMI_continuous_discrete(labels_clean, codes_clean,
+                                    nb_classes, [1,2,3], classes_idx)
 
 

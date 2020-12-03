@@ -29,24 +29,16 @@ class AdversarialAutoEncoder(nn.Module):
       
       # saving the optimizers in the object
       self.opti_AE =  optim.Adam(AE_params, learning_rate, weight_decay=1e-5)
-      self.opti_D =  optim.Adam(self.discr.parameters(), learning_rate, weight_decay=1e-5)
+      self.opti_D =  optim.Adam(self.discr.parameters(), 0.002, weight_decay=1e-5)
       
       
-  def predict(self, input):
+  def predict(self, input, data_fusion=True, defiance=False):
       
       # compute code and output
-      code = self.encoder(input)
-      out = self.decoder(code)
+      code = self.encoder(input, data_fusion=data_fusion)
+      out = self.decoder(code, defiance=defiance)
       
       return out
-  
-    
-  def code(self, input):
-    
-      # computes the code
-      code = self.encoder(input)
-      
-      return code
   
     
 class Encoder(nn.Module):
@@ -143,6 +135,8 @@ class Encoder(nn.Module):
         
         #level 3
         x4 = self.c5(x2)
+        
+    
     
     #out = torch.cat((y[:,0:2,:,:], self.sfplus(y[:,None,2,:,:]), self.sfplus(y[:,None,3,:,:])), 1)
     
@@ -168,6 +162,7 @@ class Decoder(nn.Module):
     
     # converting values inside the model into floats
     self = self.float()
+    self.sfplus =  torch.nn.Softplus()
 
     #decoder
     # the extra width is added because of concatenation ?
@@ -199,7 +194,7 @@ class Decoder(nn.Module):
     #nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity="leaky_relu")
     nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
     
-  def forward(self,input):
+  def forward(self,input, defiance=False):
     """
     the function called to run inference
     after the model is created as an object 
@@ -216,7 +211,10 @@ class Decoder(nn.Module):
     y1 = self.c10(self.c9(y2))
     out = self.final(y1)
     
-    #out = torch.cat((y[:,0:2,:,:], self.sfplus(y[:,None,2,:,:]), self.sfplus(y[:,None,3,:,:])), 1)
+    if defiance:
+        # including defiance
+        defiance_rad = self.sfplus(out[:,2,:,:][:,None,:,:])
+        out = torch.cat((out[:,0:2,:,:], defiance_rad), 1)
     
     return out
 
@@ -226,7 +224,7 @@ class Discriminator(nn.Module):
   #Discriminator network for year detection
   """
   
-  def __init__(self, nb_years=5):
+  def __init__(self, split=False, nb_years=5):
     """
     #initialization function
     #n_channels, int, number of input channel
@@ -245,7 +243,10 @@ class Discriminator(nn.Module):
     self.softm = nn.Softmax(dim=1)
     
     # convolution steps
-    self.sc1 = nn.Sequential(nn.Conv2d(16, 16, 4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
+    if split:
+        self.sc1 = nn.Sequential(nn.Conv2d(8, 16, 4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
+    else:
+        self.sc1 = nn.Sequential(nn.Conv2d(16, 16, 4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
     self.c1 = nn.Sequential(nn.Conv2d(16, 16, 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
     self.sc2 = nn.Sequential(nn.Conv2d(16, 16, 4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
     self.c2 = nn.Sequential(nn.Conv2d(16, 16, 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
@@ -272,16 +273,16 @@ class Discriminator(nn.Module):
       nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
     
     
-  def forward(self, code):
+  def forward(self, code, split=False):
     """
     here x is the input
     """
-    
-    # splitting the code
-    code_cl = code[:,:,:,:]
+    if split:
+        # splitting the code
+        code = code[:,:8,:,:]
     
     # applying the convolution layers
-    x1 = self.c1(self.sc1(code_cl))
+    x1 = self.c1(self.sc1(code))
     x2 = self.c2(self.sc2(x1))
     x3 = self.c3(self.sc3(x2))
     

@@ -14,9 +14,15 @@ from sklearn.decomposition import PCA
 from rasterio.plot import show
 from rasterio.mask import mask
 from collections import Counter
+from sklearn import metrics
+import matplotlib
+from matplotlib.colors import ListedColormap
+import matplotlib.colors as colors
 
 # this is used for the visualize function
 from mpl_toolkits.mplot3d import Axes3D
+
+import metrics as fun_metrics
 
 def getFeatures(gdf):
     """
@@ -117,24 +123,40 @@ for i in range(127):
 
 
 
-def visualize(raster, third_dim=True):
+def visualize(raster, third_dim=True, defiance=False):
     """
     param: a raster 2*128*128, with mns and radiometry
     fun: visualize a given raster in two dimensions and in 3d for altitude
     """
+    if defiance:
+        # creating axes and figures
+        fig, ((mns1, col), (def1, def2)) = plt.subplots(2, 2, figsize=(14, 14)) # Create one plot with figure size 10 by 10
+        
+        # setting the title
+        mns1.set_title("mns")
+        col.set_title("color")
+        def1.set_title("defiance mns")
+        
+        # showing the data
+        mns1 = mns1.imshow(raster[0,:,:])
+        col = col.imshow(raster[1,:,:], cmap="gray")
+        def1 = def1.imshow(raster[2,:,:], cmap="gray")
+        
+        plt.show()
     
-    # creating axes and figures
-    fig, (mns1, col) = plt.subplots(1, 2, figsize=(14, 14)) # Create one plot with figure size 10 by 10
-    
-    # setting the title
-    mns1.set_title("mns")
-    col.set_title("color")
-    
-    # showing the data
-    mns1 = mns1.imshow(raster[0,:,:])
-    col = col.imshow(raster[1,:,:])
-    
-    plt.show()
+    else:
+        # creating axes and figures
+        fig, (mns1, col) = plt.subplots(1, 2, figsize=(14, 14)) # Create one plot with figure size 10 by 10
+        
+        # setting the title
+        mns1.set_title("mns")
+        col.set_title("color")
+        
+        # showing the data
+        mns1 = mns1.imshow(raster[0,:,:])
+        col = col.imshow(raster[1,:,:], cmap="gray")
+        
+        plt.show()
     
     if third_dim:
         # visualizing in 3d
@@ -156,7 +178,7 @@ def visualize(raster, third_dim=True):
         plt.show()
     
 
-def view_embeddings(fmap, ax = None):
+def view_embeddings(fmap, ax = None, show=False):
     """
     param: a tensor, output of a network layer, and an ax plt object for subplotting
     fun: visualizes the embedding using PCA
@@ -187,10 +209,14 @@ def view_embeddings(fmap, ax = None):
     color = color.reshape((n_pix, n_pix,3), order= 'C')
     ax.imshow(color)
     
+    # showing the plot
+    if show:
+        plt.show()
+    
     plt.axis('off')
     
 
-def view_u(train, trained_model, tile_index = None, data_fusion=True):
+def view_u(train, trained_model, tile_index = None, data_fusion=True, split=False):
     """
     param: datasets, index of the raster, AE model
     fun: runs the model on the data and visualize various embeddings inside
@@ -202,7 +228,7 @@ def view_u(train, trained_model, tile_index = None, data_fusion=True):
     
     # converting to adequate format
     try:
-        input = input.view(1, input.shape[0], input.shape[1], input.shape[2]).float().cuda()
+        input = input[None,:,:,:].float().cuda()
     except:
         input = torch.from_numpy(input[None,:,:,:]).float().cuda()
 
@@ -272,9 +298,17 @@ def view_u(train, trained_model, tile_index = None, data_fusion=True):
     view_embeddings(x2_b, ax)
     ax = fig.add_subplot(3, 7, 17, aspect=1)
     ax.set(title='x3 : %d x %d x %d' %(x3.shape[1:]))
-    view_embeddings(x3, ax)
-    ax = fig.add_subplot(3, 7, 11, aspect=1)
-    ax.set(title='y4 : %d x %d x %d' %(y4.shape[1:]))
+    
+    if split:
+        view_embeddings(x3[:,:8,:,:], ax)
+        ax = fig.add_subplot(3, 7, 11, aspect=1)
+        ax.set(title='y4 : %d x %d x %d' %(y4.shape[1:]))
+        
+    else:
+        view_embeddings(x3, ax)
+        ax = fig.add_subplot(3, 7, 11, aspect=1)
+        ax.set(title='y4 : %d x %d x %d' %(y4.shape[1:]))
+        
     view_embeddings(y4, ax)
     ax = fig.add_subplot(3, 7, 12, aspect=1)
     ax.set(title='y3 : %d x %d x %d' %(y3.shape[1:]))
@@ -285,9 +319,11 @@ def view_u(train, trained_model, tile_index = None, data_fusion=True):
     ax = fig.add_subplot(3, 7, 6, aspect=1)
     ax.set(title='y1 : %d x %d x %d' %(y1.shape[1:]))
     view_embeddings(y1, ax)
+    
+    return None
 
 
-def change_detection(rast1, rast2, trained_model, gts = False, visualization=False, threshold=5):
+def change_detection(rast1, rast2, trained_model, gts = False, visualization=False, threshold=5, data_fusion=True, split=False):
   """
   param: two rasters of dims 1*2*128*128, our neural network model
   fun: outputs a change detection map based on two bi-temporal rasters
@@ -299,10 +335,14 @@ def change_detection(rast1, rast2, trained_model, gts = False, visualization=Fal
   
   # load rad and reshape it
   rad1 = input[:,1,:,:][:,None,:,:]
+  alt1 = input[:,0,:,:][:,None,:,:]
   
   # loading the encoder
   trained_model = trained_model.encoder
-  code_rast1 = trained_model(input, data_fusion=False)
+  if split:
+      code_rast1 = trained_model(input, data_fusion=data_fusion)[:,:8,:,:]
+  else:
+      code_rast1 = trained_model(input, data_fusion=data_fusion)
   
   # ============rast2===========
   input = torch.from_numpy(rast2)
@@ -310,14 +350,18 @@ def change_detection(rast1, rast2, trained_model, gts = False, visualization=Fal
   
   # load rad and reshape it
   rad2 = input[:,1,:,:][:,None,:,:]
+  alt2 = input[:,0,:,:][:,None,:,:]
 
   #level 3
-  code_rast2 = trained_model(input, data_fusion=False)
-  
+  if split:
+      code_rast2 = trained_model(input, data_fusion=data_fusion)[:,:8,:,:]
+  else:
+      code_rast2 = trained_model(input, data_fusion=data_fusion)
+      
   # ============cmap===========
   # difference matrix on the code
   CD_code = (code_rast1 - code_rast2) ** 2
-  CD_code = torch.sum(CD_code, dim=1)
+  CD_code = torch.mean(CD_code, dim=1)
   CD_code = CD_code ** 0.5
   
   CD_code_cl = CD_code * (CD_code > threshold).float()
@@ -326,42 +370,52 @@ def change_detection(rast1, rast2, trained_model, gts = False, visualization=Fal
   CD_code_cl = CD_code_cl.cpu().detach().numpy()
   
   # changing into a binary map
-  non_zero_alt = np.nonzero(CD_code_cl)
+  non_zero_mat = np.nonzero(CD_code_cl)
   
   # creating the binary change map
   cmap_bin = CD_code_cl.copy()
-  cmap_bin[non_zero_alt] = 1
+  cmap_bin[non_zero_mat] = 1
   
   if visualization == True:
       # show various embeddings in the model
       fig = plt.figure(figsize=(25, 10)) #adapted dimension
-      fig.suptitle("Change detection on two rasters")
+      fig.suptitle("Change detection on two rasters threshold: {}".format(threshold))
       ax = fig.add_subplot(3, 7, 9, aspect=1)
       ax.set(title='Change map: float' )
-      ax.imshow(CD_code.cpu().detach().numpy().squeeze())
+      ax.imshow(CD_code.cpu().detach().numpy().squeeze(), cmap="hot")
+      plt.axis('off')
+      
+      ax = fig.add_subplot(3, 7, 2, aspect=1)
+      ax.set(title='MNS 1' )
+      ax.imshow(alt1.cpu().detach().numpy().squeeze())
+      plt.axis('off')
+      
+      ax = fig.add_subplot(3, 7, 16, aspect=1)
+      ax.set(title='MNS 2' )
+      ax.imshow(alt2.cpu().detach().numpy().squeeze())
       plt.axis('off')
       
       ax = fig.add_subplot(3, 7, 1, aspect=1)
       ax.set(title='Raster 1' )
-      ax.imshow(rad1.cpu().numpy().squeeze())
+      ax.imshow(rad1.cpu().numpy().squeeze(), cmap="gray")
       plt.axis('off')
       
       ax = fig.add_subplot(3, 7, 15, aspect=1)
       ax.set(title='Raster 2' )
-      ax.imshow(rad2.cpu().numpy().squeeze())
+      ax.imshow(rad2.cpu().numpy().squeeze(), cmap="gray")
       plt.axis('off')
       
       ax = fig.add_subplot(3, 7, 10, aspect=1)
-      ax.set(title='Change map binary, min value= ' + str(cmap_bin.min()) )
+      ax.set(title='Min value: %1.1f, threshold: %2.1f' % (cmap_bin.min(), threshold))
       ax.imshow(cmap_bin.squeeze())
       plt.axis('off')
       
-      ax = fig.add_subplot(3, 7, 2, aspect=1)
+      ax = fig.add_subplot(3, 7, 3, aspect=1)
       ax.set(title='Code raster 1' )
       view_embeddings(code_rast1, ax)
       plt.axis('off')
       
-      ax = fig.add_subplot(3, 7, 16, aspect=1)
+      ax = fig.add_subplot(3, 7, 17, aspect=1)
       ax.set(title='Code raster 2' )
       view_embeddings(code_rast2, ax)
       plt.axis('off')
@@ -369,17 +423,82 @@ def change_detection(rast1, rast2, trained_model, gts = False, visualization=Fal
       
       
       if gts:
-          ax = fig.add_subplot(3, 7, 3, aspect=1)
+          
+          # sub rasters for mns and radiometry
+          diff_mns = ((rad1 - rad2)**2)**0.5
+          diff_radio = ((alt1 - alt2)**2)**0.5
+          
+          # colors for the labels
+          colors_cmap = ListedColormap(["black", "green", "red"])
+          cmap = ListedColormap(['black','blue','purple','yellow'])
+            
+          # Define a normalization from values -> colors
+          norm = colors.BoundaryNorm([0, 1, 2, 3, 4], 5)
+          norm_cmap = colors.BoundaryNorm([-1, 0, 1, 2], 4)
+
+          
+          # loading the gt change map 
+          cmap_gt, data_index, pixel_class = binary_map_gt(gts[0][None,:,:], gts[1][None,:,:])
+          
+          # loading a raster to visualize the change map, -1 is no data
+          gt_map = np.zeros(data_index.shape)
+          gt_map += -1
+          gt_map[data_index] = cmap_gt
+          
+          # loading the gt values
+          gt_map[data_index] = cmap_gt
+          
+          ## calcuating the roc
+          # getting the difference raster to same dimensions
+          CD_code = CD_code.detach().cpu().numpy()
+          pred_map = regrid(CD_code.squeeze().reshape(CD_code.shape[1:]), 128, 128, "nearest")
+          
+          # loading the predicted values
+          pred_change = pred_map[data_index]
+          
+          ax = fig.add_subplot(3, 7, 4, aspect=1)
           ax.set(title='GT raster 1' )
-          ax.imshow(gts[0])
+          ax.imshow(gts[0], cmap=cmap, norm=norm)
           plt.axis('off')
           
-          ax = fig.add_subplot(3, 7, 17, aspect=1)
+          ax = fig.add_subplot(3, 7, 18, aspect=1)
           ax.set(title='GT raster 2' )
-          ax.imshow(gts[1])
+          ax.imshow(gts[1], cmap=cmap, norm=norm)
           plt.axis('off')
-      
-  
+          
+          ax = fig.add_subplot(3, 7, 11, aspect=1)
+          ax.set(title='GT cmap, Nodata is -1' )
+          ax.imshow(gt_map, cmap=colors_cmap, norm=norm_cmap)
+          plt.axis('off')
+          
+          
+          
+          
+          # we make the roc analysis if there is relevant GT data
+          try:
+              
+              # removing no data values
+              diff_mns = diff_mns.detach().cpu().numpy().squeeze()[data_index]
+              diff_radio = diff_radio.detach().cpu().numpy().squeeze()[data_index]
+              
+              ## getting roc for the baseline
+              fpr_alt, tpr_alt, thresholds = metrics.roc_curve(cmap_gt, diff_mns)
+              fpr_rad, tpr_rad, thresholds = metrics.roc_curve(cmap_gt, diff_radio)
+              
+              # getting roc values
+              fpr, tpr, thresholds = metrics.roc_curve(cmap_gt, pred_change)
+              auc = metrics.roc_auc_score(cmap_gt, pred_change)
+              
+              
+              ax = fig.add_subplot(3, 7, 8, aspect=1)
+              ax.set(title='ROC curve, AUC: %1.2f' % (auc))
+              ax.plot(fpr, tpr, linestyle='--')
+              ax.plot(fpr_alt, tpr_alt, linestyle=':')
+              ax.plot(fpr_rad, tpr_rad, linestyle='-')
+             
+          except:
+              None
+          
   return cmap_bin, CD_code, code_rast1, code_rast2
 
 
@@ -485,11 +604,35 @@ def binary_map_gt(rast1, rast2):
     cmap_gt[cmap_gt_bol_change] = 1
     cmap_gt[cmap_gt_bol_nochange] = 0
     
-    ## getting the change map
-    # getting the nodata matrix
-    data_index = gt1 != 0
-    nodata2 = gt2 == 0
-    data_index[nodata2] = False
+    # original class
+    classes = gt2_cl
     
-    return cmap_gt, data_index
     
+    return cmap_gt, data_index, classes
+    
+
+def torch_raster(raster):
+    """
+    function that adapts a raster for the model, change to torch tensor, on cuda,
+    float
+    """
+    
+    result = torch.from_numpy(raster).cuda().float()
+    
+    return result
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

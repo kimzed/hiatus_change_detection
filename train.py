@@ -9,6 +9,7 @@ import torchnet as tnt
 import numpy as np
 import os
 from torch.optim.lr_scheduler import MultiStepLR
+from sklearn import metrics
 
 
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
@@ -16,8 +17,10 @@ os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 # importing our functions
 import loss as loss_fun
 import model as mod
+import evaluate as eval_model
+import utils as fun
 
-def train(model, args, datasets, data_fusion=True, adver=True, defiance=False):
+def train(model, args, datasets, data_fusion=True, adver=True, defiance=False, split=False):
   """
   train for one epoch
   args are some parameters of our model, e.g. batch size or n_class, etc.
@@ -65,12 +68,11 @@ def train(model, args, datasets, data_fusion=True, adver=True, defiance=False):
     ## defiance part
     if defiance:
         # loading defiance matrix
-        d_mat_alt = pred[:,None,2,:,:][bool_matr_alt]
-        d_mat_rad = pred[:,None,3,:,:][bool_matr_rad]
+        d_mat_rad = pred[:,None,2,:,:][bool_matr_rad]
         
         # calculating the loss
         eps = 10**-6
-        loss_alt = torch.mean((tiles_alt - pred_alt)**2 / (2*d_mat_alt+eps) + (1/2)*torch.log(d_mat_alt+eps))
+        loss_alt = loss_fun.MeanSquareError(pred_alt, tiles_alt)
         loss_rad = torch.mean((tiles_rad - pred_rad)**2 / (2*d_mat_rad+eps) + (1/2)*torch.log(d_mat_rad+eps))
     else:
         ## sum of squares
@@ -90,7 +92,7 @@ def train(model, args, datasets, data_fusion=True, adver=True, defiance=False):
         
             ## now the disciminant part
             #pred_year = discr(code.detach())
-            pred_year = model.discr(code)
+            pred_year = model.discr(code, split=split)
             
             # applying arg max for checking accuracy
             _, pred_max = pred_year.max(dim=1)
@@ -117,7 +119,7 @@ def train(model, args, datasets, data_fusion=True, adver=True, defiance=False):
             
             # optional: putting an adversarial on the encoder
             #code = model.encoder(tiles)
-            #pred_year = discr(code)
+            #pred_year = discr(code, split=split)
             #loss_disc = loss_fun.CrossEntropy(pred_year, labels)
             #loss_disc_adv = -loss_disc
             # optimizing the discriminator
@@ -135,16 +137,16 @@ def train(model, args, datasets, data_fusion=True, adver=True, defiance=False):
     if auto_encod:
         
         code = model.encoder(tiles, data_fusion=data_fusion)
-        pred_year = model.discr(code)
+        pred_year = model.discr(code, split=split)
         loss_disc = loss_fun.CrossEntropy(pred_year, labels)
         
         # total loss
         if adver and data_fusion:
-            loss =  loss_rad + loss_alt -  1 * loss_disc   
+            loss =  loss_rad + loss_alt #-  1 * loss_disc   
         elif data_fusion:
             loss =  loss_rad + loss_alt
         elif adver:
-            loss =  loss_rad -  1 * loss_disc
+            loss =  loss_rad -  0.1 * loss_disc
         else:
             loss = loss_rad
             
@@ -173,7 +175,7 @@ def train(model, args, datasets, data_fusion=True, adver=True, defiance=False):
   return result
 
 
-def train_full(args, datasets, writer, data_fusion=True, adver=True, defiance=False):
+def train_full(args, datasets, writer, gt_change, ex_raster, data_fusion=True, adver=True, defiance=False, split=False):
   """
   The full training loop
   """
@@ -181,7 +183,7 @@ def train_full(args, datasets, writer, data_fusion=True, adver=True, defiance=Fa
   #initialize the models
   encoder = mod.Encoder(args.n_channel, args.conv_width)
   decoder = mod.Decoder(args.n_channel, args.conv_width, args.dconv_width)
-  discr = mod.Discriminator()
+  discr = mod.Discriminator(split=split)
 
   # total number of parameters
   print('Total number of encoder parameters: {}'.format(sum([p.numel() for p in encoder.parameters()])))
@@ -199,7 +201,7 @@ def train_full(args, datasets, writer, data_fusion=True, adver=True, defiance=Fa
   NORMALCOLOR = '\033[0m'
   
   # storing losses to display them eventually
-  losses = {"tot":[], "mns":[], "alt":[], "accu":[]}
+  losses = {"tot":[], "mns":[], "alt":[], "accu":[], "auc":[]}
   
   for i_epoch in range(args.n_epoch):
       
@@ -209,7 +211,27 @@ def train_full(args, datasets, writer, data_fusion=True, adver=True, defiance=Fa
                                                                               datasets,
                                                                               data_fusion=data_fusion,
                                                                               adver=adver,
-                                                                              defiance=defiance)
+                                                                              defiance=defiance,
+                                                                              split=split)
+    
+    ## checking the auc
+    model.encoder.eval()
+    
+    ## evaluating the model
+    pred, y, classes = eval_model.evaluate_model(gt_change, model,
+                                                 data_fusion=data_fusion,
+                                                 split=split)
+    # computing the auc
+    auc = metrics.roc_auc_score(y, pred)
+    
+    ## showing a visualisation of a code
+    code_ex = model.encoder(ex_raster)
+    
+    if split:
+        code_ex = code_ex[:,:8,:,:]
+        fun.view_embeddings(code_ex, show=True)
+    else:
+        fun.view_embeddings(code_ex, show=True)
     
     # updating the learning rate
     scheduler_D.step()
@@ -220,6 +242,7 @@ def train_full(args, datasets, writer, data_fusion=True, adver=True, defiance=Fa
     losses["mns"].append(loss_alt)
     losses["alt"].append(loss_rad)
     losses["accu"].append(accu_discr)
+    losses["auc"].append(auc)
     
     print(TRAINCOLOR)
     print('Epoch %3d -> Train Loss: %1.4f' % (i_epoch, loss_train) + NORMALCOLOR)
@@ -227,6 +250,7 @@ def train_full(args, datasets, writer, data_fusion=True, adver=True, defiance=Fa
     print("loss rad is %1.4f" % (loss_rad))
     print("loss discr is %1.4f" % (loss_disc))
     print("accu discr is %1.4f" % (accu_discr))
+    print("auc is %1.4f" % (auc))
     
     # ...log the running loss
     writer.add_scalar('training loss',
@@ -272,6 +296,12 @@ def train_full(args, datasets, writer, data_fusion=True, adver=True, defiance=Fa
   plt.xlabel('epoch')
   plt.ylabel('accuracy')
   plt.plot(range(len(losses["accu"])), losses["accu"])
+  plt.show()
+  
+  plt.title('AUC')
+  plt.xlabel('epoch')
+  plt.ylabel('auc')
+  plt.plot(range(len(losses["auc"])), losses["auc"])
   plt.show()
   
   return model

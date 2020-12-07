@@ -20,7 +20,7 @@ import model as mod
 import evaluate as eval_model
 import utils as fun
 
-def train(model, args, datasets, data_fusion=True, adver=True, defiance=False, split=False):
+def train(model, args, datasets):
   """
   train for one epoch
   args are some parameters of our model, e.g. batch size or n_class, etc.
@@ -50,10 +50,20 @@ def train(model, args, datasets, data_fusion=True, adver=True, defiance=False, s
     tiles = tiles.cuda().float()
     labels = labels.cuda().long()
     
-    # ============forward===========
+    # adding noise to the sample
+    noise = np.random.normal(0, 0.5, tiles.shape)
+    noise_tens = fun.torch_raster(noise)
+    
+    # adding noise
+    tiles_noise = tiles + noise_tens
+    
+    
+    # ============forward auto-encoder===========
+    
     # compute the prediction
-    pred = model.predict(tiles, data_fusion=data_fusion, defiance=defiance)
-    code = model.encoder(tiles, data_fusion=data_fusion)
+    pred = model.predict(tiles_noise, data_fusion=args.data_fusion,
+                                         defiance=args.defiance)
+    code = model.encoder(tiles_noise, data_fusion=args.data_fusion)
     
     # boolean matrixes to remove effect of no data
     bool_matr_alt = tiles[:,None,0,:,:] != 0
@@ -66,7 +76,7 @@ def train(model, args, datasets, data_fusion=True, adver=True, defiance=False, s
     tiles_rad = tiles[:,None,1,:,:][bool_matr_rad]
     
     ## defiance part
-    if defiance:
+    if args.defiance:
         # loading defiance matrix
         d_mat_rad = pred[:,None,2,:,:][bool_matr_rad]
         
@@ -74,31 +84,42 @@ def train(model, args, datasets, data_fusion=True, adver=True, defiance=False, s
         eps = 10**-6
         loss_alt = loss_fun.MeanSquareError(pred_alt, tiles_alt)
         loss_rad = torch.mean((tiles_rad - pred_rad)**2 / (2*d_mat_rad+eps) + (1/2)*torch.log(d_mat_rad+eps))
+    
     else:
         ## sum of squares
         loss_alt = loss_fun.MeanSquareError(pred_alt, tiles_alt)
         loss_rad = loss_fun.MeanSquareError(pred_rad, tiles_rad)
     
-    
-    
     # applying arg max on labels for cross entropy
     _, labels = labels.max(dim=1)
     
-    if adver:
+    # ============discriminator===========
+    
+    if args.adversarial:
         
-        nb_loop = 1
-        
-        for i in range(nb_loop):
-        
-            ## now the disciminant part
+        for i in range(args.nb_trains_discr):
+            
+            # ============forward===========
+            
             #pred_year = discr(code.detach())
-            pred_year = model.discr(code, split=split)
+            pred_year = model.discr(code, split=args.split)
+            
+            # ============loss===========
             
             # applying arg max for checking accuracy
             _, pred_max = pred_year.max(dim=1)
             
             ## applying loss function for the discriminator and optimizing the weights
             loss_disc = loss_fun.CrossEntropy(pred_year, labels)
+            
+            # checking the accuracy
+            matrix_accu = pred_max == labels
+            matrix_accu_f = matrix_accu.flatten()
+            matrix_accu_f = matrix_accu_f.cpu().detach().numpy()
+            nb_true = np.count_nonzero(matrix_accu_f == True)
+            accu_discr += nb_true / len(matrix_accu_f)
+            
+            # ============backward===========
             
             # optimizing the discriminator. optional: training the encoder as well
             model.opti_D.zero_grad()
@@ -110,49 +131,47 @@ def train(model, args, datasets, data_fusion=True, adver=True, defiance=False, s
             # saving the loss
             loss_disc_val.add(loss_disc.item())
             
-            # checking the accuracy
-            matrix_accu = pred_max == labels
-            matrix_accu_f = matrix_accu.flatten()
-            matrix_accu_f = matrix_accu_f.cpu().detach().numpy()
-            nb_true = np.count_nonzero(matrix_accu_f == True)
-            accu_discr += nb_true / len(matrix_accu_f)
-            
-            # optional: putting an adversarial on the encoder
-            #code = model.encoder(tiles)
-            #pred_year = discr(code, split=split)
-            #loss_disc = loss_fun.CrossEntropy(pred_year, labels)
-            #loss_disc_adv = -loss_disc
-            # optimizing the discriminator
-            #model.opti_E.zero_grad()
-            #loss_disc_adv.backward()
-            #model.opti_E.step()
+            # putting an adversarial on the encoder
+            if args.opti_adversarial_encoder:
+                code = model.encoder(tiles)
+                pred_year = model.discr(code, split=args.split)
+                loss_disc = loss_fun.CrossEntropy(pred_year, labels)
+                loss_disc_adv = -loss_disc
+                model.opti_E.zero_grad()
+                loss_disc_adv.backward()
+                model.opti_E.step()
             
         #averaging accuracy
-        accufin = accu_discr/(len(loader)*nb_loop)
+        accufin = accu_discr/(len(loader)*args.nb_trains_discr)
         
         
         
-    auto_encod = True
     
-    if auto_encod:
+    # ============auto_encoder===========
+    
+    if args.auto_encod:
         
-        code = model.encoder(tiles, data_fusion=data_fusion)
-        pred_year = model.discr(code, split=split)
+        # ============forward===========
+        
+        code = model.encoder(tiles_noise, data_fusion=args.data_fusion)
+        pred_year = model.discr(code, split=args.split)
         loss_disc = loss_fun.CrossEntropy(pred_year, labels)
         
-        # total loss
-        if adver and data_fusion:
-            loss =  loss_rad + loss_alt #-  1 * loss_disc   
-        elif data_fusion:
+        # ============loss==========
+        
+        if args.adversarial and args.data_fusion:
+            loss =  loss_rad + loss_alt -  args.disc_loss_weight * loss_disc   
+        elif args.data_fusion:
             loss =  loss_rad + loss_alt
-        elif adver:
-            loss =  loss_rad -  0.1 * loss_disc
+        elif args.adversarial:
+            loss =  loss_rad -  args.disc_loss_weight * loss_disc
         else:
             loss = loss_rad
             
         loss_data.add(loss.item())
         
         # ============backward===========
+        
         model.opti_AE.zero_grad()
         loss.backward()
         model.opti_AE.step()
@@ -160,10 +179,8 @@ def train(model, args, datasets, data_fusion=True, adver=True, defiance=False, s
     # storing the loss values
     loss_data_alt.add(loss_alt.item())
     loss_data_rad.add(loss_rad.item())
-    #loss_data_alt.add(loss_alt.cpu().detach())
-    #loss_data_rad.add(loss_rad.cpu().detach())
     
-    if adver == False:
+    if args.adversarial == False:
         accufin = 0
     #for p in model.parameters(): #we clip the gradient at norm 1
     #  p.grad.data.clamp_(-1, 1) #this helps learning faster
@@ -175,19 +192,19 @@ def train(model, args, datasets, data_fusion=True, adver=True, defiance=False, s
   return result
 
 
-def train_full(args, datasets, writer, gt_change, ex_raster, data_fusion=True, adver=True, defiance=False, split=False):
+def train_full(args, datasets, writer, gt_change, ex_raster):
   """
   The full training loop
   """
   
   #initialize the models
-  encoder = mod.Encoder(args.n_channel, args.conv_width)
-  decoder = mod.Decoder(args.n_channel, args.conv_width, args.dconv_width)
-  discr = mod.Discriminator(split=split)
+  encoder = mod.Encoder(args.conv_width)
+  decoder = mod.Decoder(args.conv_width, args.dconv_width)
+  discr = mod.Discriminator(split=args.split)
 
   # total number of parameters
   print('Total number of encoder parameters: {}'.format(sum([p.numel() for p in encoder.parameters()])))
-  print('Total number of encoder parameters: {}'.format(sum([p.numel() for p in decoder.parameters()])))
+  print('Total number of dencoder parameters: {}'.format(sum([p.numel() for p in decoder.parameters()])))
   print('Total number of discriminator parameters: {}'.format(sum([p.numel() for p in discr.parameters()])))
   
   # creating a model with encoder, decoder and discriminator
@@ -203,35 +220,34 @@ def train_full(args, datasets, writer, gt_change, ex_raster, data_fusion=True, a
   # storing losses to display them eventually
   losses = {"tot":[], "mns":[], "alt":[], "accu":[], "auc":[]}
   
-  for i_epoch in range(args.n_epoch):
+  for i_epoch in range(args.epochs):
       
     #train one epoch
     loss_train, nb_batches, loss_alt, loss_rad, loss_disc, accu_discr = train(model,
                                                                               args,
-                                                                              datasets,
-                                                                              data_fusion=data_fusion,
-                                                                              adver=adver,
-                                                                              defiance=defiance,
-                                                                              split=split)
+                                                                              datasets)
     
     ## checking the auc
     model.encoder.eval()
     
     ## evaluating the model
-    pred, y, classes = eval_model.evaluate_model(gt_change, model,
-                                                 data_fusion=data_fusion,
-                                                 split=split)
+    pred, y, classes = eval_model.evaluate_model(gt_change, model, args)
+    
     # computing the auc
     auc = metrics.roc_auc_score(y, pred)
     
     ## showing a visualisation of a code
     code_ex = model.encoder(ex_raster)
     
-    if split:
+    if args.split:
         code_ex = code_ex[:,:8,:,:]
         fun.view_embeddings(code_ex, show=True)
     else:
         fun.view_embeddings(code_ex, show=True)
+        
+    # stopping if auc is good
+    #if auc > 0.74 :
+    #    break
     
     # updating the learning rate
     scheduler_D.step()
@@ -303,5 +319,10 @@ def train_full(args, datasets, writer, gt_change, ex_raster, data_fusion=True, a
   plt.ylabel('auc')
   plt.plot(range(len(losses["auc"])), losses["auc"])
   plt.show()
+  
+  # getting into eval() mode
+  model.encoder.eval()
+  model.decoder.eval()
+  model.discr.eval()
   
   return model

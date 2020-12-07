@@ -281,7 +281,9 @@ fun.visualize(s_rasters_clipped["1970"][ind][:,:,:], third_dim=False)
 # interesting sample
 sample_id = [121, 833, 127, 592, 851, 107, 480, 700, 45, 465,
              230, 416, 844, 237, 636, 13, 518, 298, 707, 576,
-             40, 97, 212, 391, 402, 428, 464, 515, 565, 581, 689]
+             40, 97, 212, 391, 402, 428, 464, 515, 565, 581, 689,
+             302, 153, 466, 482, 105, 341, 337, 782, 398, 153,
+             88, 342, 318, 126, 481, 554, 138, 447, 189, 224]
 
 # loading gt boxes
 sample_box = [boxes[i] for i in sample_id]
@@ -306,9 +308,7 @@ if save_poly:
     ## we save the polygons as .shp
     os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
     
-    gs.to_file(filename='./data/GT/GT_poly_2.shp', driver='ESRI Shapefile')
-
-
+    gs.to_file(filename='./data/GT/GT_poly_3.shp', driver='ESRI Shapefile')
 
 """
 

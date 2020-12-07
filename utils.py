@@ -18,6 +18,8 @@ from sklearn import metrics
 import matplotlib
 from matplotlib.colors import ListedColormap
 import matplotlib.colors as colors
+from sklearn.model_selection import train_test_split
+from torch.utils.data import Subset
 
 # this is used for the visualize function
 from mpl_toolkits.mplot3d import Axes3D
@@ -216,7 +218,7 @@ def view_embeddings(fmap, ax = None, show=False):
     plt.axis('off')
     
 
-def view_u(train, trained_model, tile_index = None, data_fusion=True, split=False):
+def view_u(train, trained_model, args, tile_index = None):
     """
     param: datasets, index of the raster, AE model
     fun: runs the model on the data and visualize various embeddings inside
@@ -251,7 +253,7 @@ def view_u(train, trained_model, tile_index = None, data_fusion=True, split=Fals
     #level 1
     x1 = model.sc2(model.c1(rad))
     #level 2
-    if data_fusion:
+    if args.data_fusion:
         x2= model.c3(x1 + a1)
         
         # extra layer
@@ -299,7 +301,7 @@ def view_u(train, trained_model, tile_index = None, data_fusion=True, split=Fals
     ax = fig.add_subplot(3, 7, 17, aspect=1)
     ax.set(title='x3 : %d x %d x %d' %(x3.shape[1:]))
     
-    if split:
+    if args.split:
         view_embeddings(x3[:,:8,:,:], ax)
         ax = fig.add_subplot(3, 7, 11, aspect=1)
         ax.set(title='y4 : %d x %d x %d' %(y4.shape[1:]))
@@ -323,7 +325,7 @@ def view_u(train, trained_model, tile_index = None, data_fusion=True, split=Fals
     return None
 
 
-def change_detection(rast1, rast2, trained_model, gts = False, visualization=False, threshold=5, data_fusion=True, split=False):
+def change_detection(rast1, rast2, trained_model, args, gts = False, visualization=False, threshold=5):
   """
   param: two rasters of dims 1*2*128*128, our neural network model
   fun: outputs a change detection map based on two bi-temporal rasters
@@ -339,10 +341,10 @@ def change_detection(rast1, rast2, trained_model, gts = False, visualization=Fal
   
   # loading the encoder
   trained_model = trained_model.encoder
-  if split:
-      code_rast1 = trained_model(input, data_fusion=data_fusion)[:,:8,:,:]
+  if args.split:
+      code_rast1 = trained_model(input, data_fusion=args.data_fusion)[:,:8,:,:]
   else:
-      code_rast1 = trained_model(input, data_fusion=data_fusion)
+      code_rast1 = trained_model(input, data_fusion=args.data_fusion)
   
   # ============rast2===========
   input = torch.from_numpy(rast2)
@@ -353,10 +355,10 @@ def change_detection(rast1, rast2, trained_model, gts = False, visualization=Fal
   alt2 = input[:,0,:,:][:,None,:,:]
 
   #level 3
-  if split:
-      code_rast2 = trained_model(input, data_fusion=data_fusion)[:,:8,:,:]
+  if args.split:
+      code_rast2 = trained_model(input, data_fusion=args.data_fusion)[:,:8,:,:]
   else:
-      code_rast2 = trained_model(input, data_fusion=data_fusion)
+      code_rast2 = trained_model(input, data_fusion=args.data_fusion)
       
   # ============cmap===========
   # difference matrix on the code
@@ -425,8 +427,8 @@ def change_detection(rast1, rast2, trained_model, gts = False, visualization=Fal
       if gts:
           
           # sub rasters for mns and radiometry
-          diff_mns = ((rad1 - rad2)**2)**0.5
-          diff_radio = ((alt1 - alt2)**2)**0.5
+          diff_mns = ((alt1 - alt2)**2)**0.5
+          diff_radio = ((rad1 - rad2)**2)**0.5
           
           # colors for the labels
           colors_cmap = ListedColormap(["black", "green", "red"])
@@ -622,9 +624,51 @@ def torch_raster(raster):
     return result
 
 
+def prepare_nmi(list_rasters, discrete=False):
+    
+    # llist to store the rasters
+    reshap_rasts = []
+    
+    # reshaping and loading in the list
+    for rast in list_rasters:
+        
+        # reshaping
+        rast_resh =  regrid(rast.reshape(rast.shape), 32, 32, "nearest")
+        
+        if discrete:
+            rast_resh = np.rint(rast_resh)
+        
+        # storing into our list
+        reshap_rasts.append(rast_resh)
+        
+    # stacking into one matrix
+    matrix_labels = np.stack(reshap_rasts, axis=0)
+    
+    # reshaping
+    matrix_flat = matrix_labels.reshape((len(reshap_rasts)*32*32))
+    
+    return matrix_flat
 
 
-
+def train_val_dataset(dataset, gt, val_split=0.25):
+        """
+        param: list of rasters as numpy objects and percentage of test data
+        fun: outputs a dictionary with training and test data
+        """
+        
+        # getting ids for training and validation sets
+        train_idx, val_idx = train_test_split(list(range(len(dataset))), test_size=val_split)
+        
+        # subsetting into training and validation, storing into a dictionary
+        datasets = {}
+        datasets['train'] = Subset(dataset, train_idx)
+        datasets['val'] = Subset(dataset, val_idx)
+        
+        # subsetting the groundtruth for the adversarial part
+        datasets['gt_train'] = Subset(gt, train_idx)
+        datasets['gt_val'] = Subset(gt, val_idx)
+        
+        return datasets
 
 
 

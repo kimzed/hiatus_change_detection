@@ -46,7 +46,7 @@ class Encoder(nn.Module):
   EncoderDecoder network for semantic segmentation
   """
   
-  def __init__(self, n_channels, encoder_conv_width, cuda = False):
+  def __init__(self, encoder_conv_width, cuda = False):
     """
     initialization function
     n_channels, int, number of input channel
@@ -66,14 +66,14 @@ class Encoder(nn.Module):
     #nn.Conv2d(depth_of_input, depth_of_output,size_of_kernel (3),padding=1, padding_mode='reflection')
     #nn.BatchNorm2d(depth_of_layer)
     # n_channels is the number of channels from the input
-    self.c1 = nn.Sequential(nn.Conv2d(n_channels, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
+    self.c1 = nn.Sequential(nn.Conv2d(1, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
     self.sc2 = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],4,padding=1, stride=2, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
     self.c3 = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.LeakyReLU(True))
     self.sc4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
     self.c5 = nn.Sequential(nn.Conv2d(encoder_conv_width[3],encoder_conv_width[4],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[4]),nn.LeakyReLU(True))
    
     # network for the altitude
-    self.ca1 = nn.Sequential(nn.Conv2d(n_channels, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
+    self.ca1 = nn.Sequential(nn.Conv2d(1, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
     self.sca2 = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
     self.ca3 = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.LeakyReLU(True))
     self.sca4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
@@ -98,7 +98,7 @@ class Encoder(nn.Module):
     #nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity="leaky_relu")
     nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
     
-  def forward(self,input, data_fusion=True):
+  def forward(self, input, data_fusion=True):
     """
     the function called to run inference
     after the model is created as an object 
@@ -148,7 +148,7 @@ class Decoder(nn.Module):
   EncoderDecoder network for semantic segmentation
   """
   
-  def __init__(self, n_channels, encoder_conv_width, decoder_conv_width, cuda = False):
+  def __init__(self, encoder_conv_width, decoder_conv_width, cuda = False):
     """
     initialization function
     n_channels, int, number of input channel

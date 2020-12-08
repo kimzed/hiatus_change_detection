@@ -143,7 +143,7 @@ def visualize(raster, third_dim=True, defiance=False):
         mns1 = mns1.imshow(raster[0,:,:])
         col = col.imshow(raster[1,:,:], cmap="gray")
         def1 = def1.imshow(raster[2,:,:], cmap="gray")
-        
+        plt.axis("off")
         plt.show()
     
     else:
@@ -157,6 +157,7 @@ def visualize(raster, third_dim=True, defiance=False):
         # showing the data
         mns1 = mns1.imshow(raster[0,:,:])
         col = col.imshow(raster[1,:,:], cmap="gray")
+        plt.axis("off")
         
         plt.show()
     
@@ -176,7 +177,7 @@ def visualize(raster, third_dim=True, defiance=False):
         ydata = y.flatten()
         ax1.view_init(50, 35)
         ax1.scatter3D(xdata, ydata, zdata, c=zdata, cmap='Greens')
-        
+        plt.axis("off")
         plt.show()
     
 
@@ -669,14 +670,5 @@ def train_val_dataset(dataset, gt, val_split=0.25):
         datasets['gt_val'] = Subset(gt, val_idx)
         
         return datasets
-
-
-
-
-
-
-
-
-
 
 

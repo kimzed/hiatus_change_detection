@@ -4,7 +4,6 @@
 # Cédric BARON
 
 # importing libraries
-from sklearn.metrics import confusion_matrix
 import numpy as np
 from matplotlib import pyplot
 from sklearn.metrics import precision_recall_curve
@@ -12,6 +11,13 @@ from sklearn import metrics
 from sklearn.neighbors import KDTree
 from scipy.special import digamma
 import scipy.spatial as spatial
+from sklearn.svm import SVC
+from sklearn.metrics import classification_report, confusion_matrix
+import torch
+from sklearn.preprocessing import RobustScaler
+
+# importing functions from other files
+import utils as fun
 
 
 class ConfusionMatrixBinary:
@@ -194,8 +200,41 @@ def NMI_continuous_discrete(labels_discrete, data_continuous, nb_classes, labels
     return NMI_avg
 
 
-
-
+def svm_accuracy_estimation(data, labels):
+    
+    ## linear svm with the mns
+    # loading the data
+    dataset = fun.train_val_dataset(data, labels)
+    tensor_train = torch.tensor(dataset['train'])
+    tensor_val = torch.tensor(dataset['val'])
+    tensor_gt_val = torch.tensor(dataset['gt_val'])
+    
+    
+    if len(list(tensor_train.shape)) == 1:
+        
+        tensor_train = torch.tensor(dataset['train'])[:,None]
+        tensor_val = torch.tensor(dataset['val'])[:,None]
+        tensor_gt_val = torch.tensor(dataset['gt_val'])[:,None]
+    
+    scaler = RobustScaler()
+    tensor_train = scaler.fit_transform(tensor_train)
+    tensor_val = scaler.fit_transform(tensor_val)
+    
+    
+    # loading the model
+    svclassifiers = SVC(kernel='linear')
+    
+    # training the model
+    svclassifiers.fit(tensor_train, dataset['gt_train'])
+    
+    # predicting the labels
+    pred_label = svclassifiers.predict(tensor_val)
+    
+    # printing  results
+    conf_mat = confusion_matrix(tensor_gt_val, pred_label)
+    class_report = classification_report(tensor_gt_val, pred_label)
+    
+    return conf_mat, class_report
 
 
 

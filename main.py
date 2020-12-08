@@ -12,6 +12,7 @@ import numpy as np
 import argparse
 from sklearn.svm import SVC
 from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.model_selection import cross_val_score
 
 # for manual visualisation
 from rasterio.plot import show
@@ -34,7 +35,7 @@ def main():
     parser.add_argument('--lr', default=0.01, type=float, help='Initial learning rate')
     parser.add_argument('--lr_decay', default=0.5, type=float, help='Multiplicative factor used on learning rate at `lr_steps`')
     parser.add_argument('--lr_steps', default='[50, 70, 90]', help='List of epochs where the learning rate is decreased by `lr_decay`')
-    parser.add_argument('--epochs', default=1, type=int, help='Number of epochs to train. If <=0, only testing will be done.')
+    parser.add_argument('--epochs', default=20, type=int, help='Number of epochs to train. If <=0, only testing will be done.')
     parser.add_argument('--batch_size', default=92, type=int, help='Batch size')
     parser.add_argument('--optim', default='adam', help='Optimizer: sgd|adam')
     parser.add_argument('--grad_clip', default=1, type=float, help='Element-wise clipping of gradient. If 0, does not clip')
@@ -52,7 +53,7 @@ def main():
     parser.add_argument('--data_fusion', default=True, help='Including data fusion')
     parser.add_argument('--adversarial', default=True, help='Making the model adversarial')
     parser.add_argument('--defiance', default=False, help='Including defiance')
-    parser.add_argument('--split', default=False, help='Making a split on the code')
+    parser.add_argument('--split', default=True, help='Making a split on the code')
     parser.add_argument('--auto_encod', default=True, help='Activating the auto-encoder')
     
     # Encoder
@@ -272,8 +273,12 @@ if __name__ == "__other__":
     
     # convert the rasters into codes
     for year in gt_change:
-        list_codes += [trained_model.encoder(fun.torch_raster(rast[None,1:,:,:])) for rast in gt_change[year]]
-    
+        
+        if args.split:
+            list_codes += [trained_model.encoder(fun.torch_raster(rast[None,1:,:,:]))[:,:8,:,:] for rast in gt_change[year]]
+        else:
+            list_codes += [trained_model.encoder(fun.torch_raster(rast[None,1:,:,:])) for rast in gt_change[year]]
+        
     # convert them back to numpy matrixes
     np_codes = [rast.detach().cpu().numpy() for rast in list_codes]
         
@@ -282,8 +287,11 @@ if __name__ == "__other__":
     matrix_codes = matrix_codes.squeeze()
     
     # reshaping
-    flat_codes = matrix_codes.transpose(0,2,3,1).reshape((matrix_codes.shape[0]*32*32, 16))
-    
+    if args.split:
+        flat_codes = matrix_codes.transpose(0,2,3,1).reshape((matrix_codes.shape[0]*32*32, 8))
+    else:
+        flat_codes = matrix_codes.transpose(0,2,3,1).reshape((matrix_codes.shape[0]*32*32, 16))
+        
     ## extracting the altitude
     # load list of mns
     list_mns = []
@@ -358,49 +366,34 @@ if __name__ == "__other__":
     Making a linear SVM
     """)
     
-    ## making a train  and a test set for svm classification
-    dataset_model = fun.train_val_dataset(codes_clean, labels_clean)
-    
-    ## linear svm with the codes
-    # loading the model
-    svclassifier_codes = SVC(kernel='linear')
-    
-    # training the model
-    svclassifier_codes.fit(dataset_model["train"], dataset_model["gt_train"])
-    
-    # predicting the labels
-    pred_label_model = svclassifier_codes.predict(dataset_model["val"])
-    
-    # printing results
-    confusion_model = confusion_matrix(list(dataset_model["gt_val"]), pred_label_model)
-    print(classification_report(list(dataset_model["gt_val"]), pred_label_model))
-    print(confusion_model)
-    
-    # checking accuracy
-    true_posi = confusion_model * np.eye(3)
-    accu = true_posi.sum() / confusion_model.sum()
-    
-    ## making a train  and a test set for svm classification
-    dataset_model = fun.train_val_dataset(codes_clean, labels_clean)
+    ## linear svm with the model
+    conf_mat_model, class_report_model = fun_metrics.svm_accuracy_estimation(codes_clean,
+                                                                             labels_clean)
     
     ## linear svm with the mns
-    # loading the data
-    dataset_mns = fun.train_val_dataset(mns_clean, labels_clean)
+    conf_mat_mns, class_report_mns = fun_metrics.svm_accuracy_estimation(mns_clean,
+                                                                             labels_clean)
     
-    # loading the model
-    svclassifier_mns = SVC(kernel='linear')
-    
-    # training the model
-    svclassifier_mns.fit(dataset_mns["train"], dataset_mns["gt_train"])
-    
-    # predicting the labels
-    pred_label_mns = svclassifier_mns.predict(dataset_mns["val"])
-    
-    # printing  results
-    print(confusion_matrix(dataset_mns["gt_val"], pred_label_mns))
-    print(classification_report(dataset_mns["gt_val"], pred_label_mns))
+    ## linear svm with the rad
+    conf_mat_rad, class_report_rad = fun_metrics.svm_accuracy_estimation(rad_clean,
+                                                                             labels_clean)
 
-        
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     
     
     

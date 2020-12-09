@@ -34,8 +34,8 @@ def main():
     # Optimization arguments
     parser.add_argument('--lr', default=0.01, type=float, help='Initial learning rate')
     parser.add_argument('--lr_decay', default=0.5, type=float, help='Multiplicative factor used on learning rate at `lr_steps`')
-    parser.add_argument('--lr_steps', default='[50, 70, 90]', help='List of epochs where the learning rate is decreased by `lr_decay`')
-    parser.add_argument('--epochs', default=20, type=int, help='Number of epochs to train. If <=0, only testing will be done.')
+    parser.add_argument('--lr_steps', default=[100,200,300,400,500,1000,2000,3000,4000,5000,6000,7000,8000,9000], help='List of epochs where the learning rate is decreased by `lr_decay`')
+    parser.add_argument('--epochs', default=150, type=int, help='Number of epochs to train. If <=0, only testing will be done.')
     parser.add_argument('--batch_size', default=92, type=int, help='Batch size')
     parser.add_argument('--optim', default='adam', help='Optimizer: sgd|adam')
     parser.add_argument('--grad_clip', default=1, type=float, help='Element-wise clipping of gradient. If 0, does not clip')
@@ -51,9 +51,9 @@ def main():
     # Model
     parser.add_argument('--seed', default=1, type=int, help='Seed for random initialisation')
     parser.add_argument('--data_fusion', default=True, help='Including data fusion')
-    parser.add_argument('--adversarial', default=True, help='Making the model adversarial')
-    parser.add_argument('--defiance', default=False, help='Including defiance')
-    parser.add_argument('--split', default=True, help='Making a split on the code')
+    parser.add_argument('--adversarial', default=False, help='Making the model adversarial')
+    parser.add_argument('--defiance', default=True, help='Including defiance')
+    parser.add_argument('--split', default=False, help='Making a split on the code')
     parser.add_argument('--auto_encod', default=True, help='Activating the auto-encoder')
     
     # Encoder
@@ -172,7 +172,7 @@ if __name__ == "__other__":
     rast1 = numpy_rasters["1954"][nb][None,:,:,:]
     rast2 = numpy_rasters["1970"][nb][None,:,:,:]
     
-    threshold = 0.5
+    threshold = 0.75
     
     # computing change raster
     cmap, dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model, args,

@@ -11,7 +11,6 @@ import os
 from torch.optim.lr_scheduler import MultiStepLR
 from sklearn import metrics
 
-
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 
 # importing our functions
@@ -83,8 +82,13 @@ def train(model, args, datasets):
         # calculating the loss
         eps = 10**-6
         loss_alt = loss_fun.MeanSquareError(pred_alt, tiles_alt)
-        loss_rad = torch.mean((tiles_rad - pred_rad)**2 / (2*d_mat_rad+eps) + (1/2)*torch.log(d_mat_rad+eps))
-    
+        loss_rad = torch.mean((tiles_rad - pred_rad)**2 / (2*d_mat_rad**2+eps) + torch.log(d_mat_rad+eps))
+        #plt.title('loss per number of epochs')
+        #plt.xlabel('epoch')
+        #plt.ylabel('loss')
+        #plt.plot(((tiles_rad - pred_rad)**2).cpu().detach().numpy(), (d_mat_rad**2).cpu().detach().numpy(), 'o')
+        #plt.show()
+        
     else:
         ## sum of squares
         loss_alt = loss_fun.MeanSquareError(pred_alt, tiles_alt)
@@ -222,6 +226,9 @@ def train_full(args, datasets, writer, gt_change, ex_raster):
   
   for i_epoch in range(args.epochs):
       
+    if i_epoch == 5:
+        print("hello")
+      
     #train one epoch
     loss_train, nb_batches, loss_alt, loss_rad, loss_disc, accu_discr = train(model,
                                                                               args,
@@ -319,6 +326,9 @@ def train_full(args, datasets, writer, gt_change, ex_raster):
   plt.ylabel('auc')
   plt.plot(range(len(losses["auc"])), losses["auc"])
   plt.show()
+  
+  print("AUC on average is {} ".format(np.mean(losses["auc"])))
+  print("AUC sd is {} ".format(np.std(losses["auc"])))
   
   # getting into eval() mode
   model.encoder.eval()

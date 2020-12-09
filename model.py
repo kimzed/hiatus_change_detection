@@ -175,7 +175,7 @@ class Decoder(nn.Module):
     self.c10 = nn.Sequential(nn.Conv2d(decoder_conv_width[2],decoder_conv_width[3],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[3]), nn.LeakyReLU(True)) 
     
     #final  layer
-    self.final = nn.Conv2d(decoder_conv_width[3], 2, 1, padding=0, padding_mode='reflect')
+    self.final = nn.Conv2d(decoder_conv_width[3], 3, 1, padding=0, padding_mode='reflect')
     
     # initializing weights
     self.c6[0].apply(self.init_weights)

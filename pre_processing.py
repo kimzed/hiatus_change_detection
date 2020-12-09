@@ -150,9 +150,15 @@ for year in rasters_clipped:
     
     # extracting alt and rad
     alt_rasts = [rast[0] for rast in rasters_clipped[year]]
+    rad_rasts = [rast[1] for rast in rasters_clipped[year]]
+    
     # subtracting min from alt rasters
     alt_rasts = [rast - np.min(rast) for rast in alt_rasts]
     
+    # replacing data in the dictionary
+    rasters_clipped[year] = [np.stack((alt, rad), axis=0) for alt, rad in zip(alt_rasts, rad_rasts)]
+    
+    # getting all the altitude rasters for the mean and std
     rasters_alt += alt_rasts.copy()
 
 # getting the total of rasters

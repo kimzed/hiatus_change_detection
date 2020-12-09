@@ -15,11 +15,11 @@ from rasterio.plot import show
 from rasterio.mask import mask
 from collections import Counter
 from sklearn import metrics
-import matplotlib
 from matplotlib.colors import ListedColormap
 import matplotlib.colors as colors
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Subset
+import matplotlib.patches as mpatches
 
 # this is used for the visualize function
 from mpl_toolkits.mplot3d import Axes3D
@@ -138,11 +138,11 @@ def visualize(raster, third_dim=True, defiance=False):
         mns1.set_title("mns")
         col.set_title("color")
         def1.set_title("defiance mns")
-        
+        a+b
         # showing the data
-        mns1 = mns1.imshow(raster[0,:,:])
+        mns1 = mns1.imshow(raster[0,:,:], vmin=-0.5, vmax=2)
         col = col.imshow(raster[1,:,:], cmap="gray")
-        def1 = def1.imshow(raster[2,:,:], cmap="gray")
+        def1 = def1.imshow(raster[2,:,:], cmap="hot")
         plt.axis("off")
         plt.show()
     
@@ -155,7 +155,7 @@ def visualize(raster, third_dim=True, defiance=False):
         col.set_title("color")
         
         # showing the data
-        mns1 = mns1.imshow(raster[0,:,:])
+        mns1 = mns1.imshow(raster[0,:,:], vmin=-0.5, vmax=2)
         col = col.imshow(raster[1,:,:], cmap="gray")
         plt.axis("off")
         
@@ -390,12 +390,12 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
       
       ax = fig.add_subplot(3, 7, 2, aspect=1)
       ax.set(title='MNS 1' )
-      ax.imshow(alt1.cpu().detach().numpy().squeeze())
+      ax.imshow(alt1.cpu().detach().numpy().squeeze(),vmin=-0.5, vmax=2)
       plt.axis('off')
       
       ax = fig.add_subplot(3, 7, 16, aspect=1)
       ax.set(title='MNS 2' )
-      ax.imshow(alt2.cpu().detach().numpy().squeeze())
+      ax.imshow(alt2.cpu().detach().numpy().squeeze(),vmin=-0.5, vmax=2)
       plt.axis('off')
       
       ax = fig.add_subplot(3, 7, 1, aspect=1)
@@ -446,22 +446,20 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
           # loading a raster to visualize the change map, -1 is no data
           gt_map = np.zeros(data_index.shape)
           gt_map += -1
-          gt_map[data_index] = cmap_gt
-          
           # loading the gt values
           gt_map[data_index] = cmap_gt
           
-          ## calcuating the roc
-          # getting the difference raster to same dimensions
-          CD_code = CD_code.detach().cpu().numpy()
-          pred_map = regrid(CD_code.squeeze().reshape(CD_code.shape[1:]), 128, 128, "nearest")
-          
-          # loading the predicted values
-          pred_change = pred_map[data_index]
-          
+          # putting first gt
           ax = fig.add_subplot(3, 7, 4, aspect=1)
           ax.set(title='GT raster 1' )
-          ax.imshow(gts[0], cmap=cmap, norm=norm)
+          ax.imshow(gts[0], cmap=cmap, norm=norm, label="test")
+          ## making the legend
+          # loading unique values
+          cols = ['black','blue','purple','yellow']
+          labels = ['nodata', 'buildings', 'roads', 'fields']
+          # create a patch (proxy artist) for every color 
+          patches = [ mpatches.Patch(color=cols[i], label=labels[i]) for i in range(len(labels)) ]
+          ax.legend(handles=patches, bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0. )
           plt.axis('off')
           
           ax = fig.add_subplot(3, 7, 18, aspect=1)
@@ -472,13 +470,27 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
           ax = fig.add_subplot(3, 7, 11, aspect=1)
           ax.set(title='GT cmap, Nodata is -1' )
           ax.imshow(gt_map, cmap=colors_cmap, norm=norm_cmap)
+          ## making the legend
+          # loading unique values
+          cols = ['black','green','red']
+          labels = ['nodata', 'nochange', 'change']
+          # create a patch (proxy artist) for every color 
+          patches = [ mpatches.Patch(color=cols[i], label=labels[i]) for i in range(len(labels)) ]
+          ax.legend(handles=patches, bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0. )
+          
           plt.axis('off')
-          
-          
           
           
           # we make the roc analysis if there is relevant GT data
           try:
+              
+              ## calcuating the roc
+              # getting the difference raster to same dimensions
+              CD_code = CD_code.detach().cpu().numpy()
+              pred_map = regrid(CD_code.squeeze().reshape(CD_code.shape[1:]), 128, 128, "nearest")
+              
+              # loading the predicted values
+              pred_change = pred_map[data_index]
               
               # removing no data values
               diff_mns = diff_mns.detach().cpu().numpy().squeeze()[data_index]

@@ -10,9 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 import numpy as np
 import argparse
-from sklearn.svm import SVC
-from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.model_selection import cross_val_score
+import matplotlib.pyplot as plt
 
 # for manual visualisation
 from rasterio.plot import show
@@ -34,8 +32,8 @@ def main():
     # Optimization arguments
     parser.add_argument('--lr', default=0.01, type=float, help='Initial learning rate')
     parser.add_argument('--lr_decay', default=0.5, type=float, help='Multiplicative factor used on learning rate at `lr_steps`')
-    parser.add_argument('--lr_steps', default=[100,200,300,400,500,1000,2000,3000,4000,5000,6000,7000,8000,9000], help='List of epochs where the learning rate is decreased by `lr_decay`')
-    parser.add_argument('--epochs', default=150, type=int, help='Number of epochs to train. If <=0, only testing will be done.')
+    parser.add_argument('--lr_steps', default=[50, 100, 1000, 1500], help='List of epochs where the learning rate is decreased by `lr_decay`')
+    parser.add_argument('--epochs', default=20, type=int, help='Number of epochs to train. If <=0, only testing will be done.')
     parser.add_argument('--batch_size', default=92, type=int, help='Batch size')
     parser.add_argument('--optim', default='adam', help='Optimizer: sgd|adam')
     parser.add_argument('--grad_clip', default=1, type=float, help='Element-wise clipping of gradient. If 0, does not clip')
@@ -51,9 +49,9 @@ def main():
     # Model
     parser.add_argument('--seed', default=1, type=int, help='Seed for random initialisation')
     parser.add_argument('--data_fusion', default=True, help='Including data fusion')
-    parser.add_argument('--adversarial', default=False, help='Making the model adversarial')
-    parser.add_argument('--defiance', default=True, help='Including defiance')
-    parser.add_argument('--split', default=False, help='Making a split on the code')
+    parser.add_argument('--adversarial', default=True, help='Making the model adversarial')
+    parser.add_argument('--defiance', default=False, help='Including defiance')
+    parser.add_argument('--split', default=True, help='Making a split on the code')
     parser.add_argument('--auto_encod', default=True, help='Activating the auto-encoder')
     
     # Encoder
@@ -63,6 +61,8 @@ def main():
     parser.add_argument('--dconv_width', default=[8,8,8,8], help='Layers size')
     
     # Discriminator
+    parser.add_argument('--nb_channels_split', default=8, type=int, help='Number of channels for the input to the discriminator')
+    parser.add_argument('--disc_width', default=[16,16,16,16,16,16,16,16,16], help='Layers size')
     parser.add_argument('--nb_trains_discr', default=1, type=int, help='Number of times the discriminator is trained compared to the autoencoder')
     parser.add_argument('--disc_loss_weight', default=0.1, type=float, help='Weight applied on the adversarial loss with full model')
     parser.add_argument('--opti_adversarial_encoder', default=False, help='Trains the encoder weights')
@@ -71,7 +71,9 @@ def main():
     args.start_epoch = 0
     
     # setting the seed
-    set_seed(args.seed, args.cuda)
+# =============================================================================
+#     set_seed(args.seed, args.cuda)
+# =============================================================================
     
     # Decide on the dataset
     if args.dataset=='frejus_dataset':
@@ -91,17 +93,19 @@ def main():
     return args, gt_change, numpy_rasters, trained_model, train_data
 
 
-def set_seed(seed, cuda=True):
-    """ 
-    Sets seeds in all frameworks
-    """
-    
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    
-    if cuda: 
-        torch.cuda.manual_seed(seed)  
+# =============================================================================
+# def set_seed(seed, cuda=True):
+#     """ 
+#     Sets seeds in all frameworks
+#     """
+#     
+#     random.seed(seed)
+#     np.random.seed(seed)
+#     torch.manual_seed(seed)
+#     
+#     if cuda: 
+#         torch.cuda.manual_seed(seed)  
+# =============================================================================
         
 ###############################################################################
 ###############################################################################
@@ -122,7 +126,6 @@ if __name__ == "__main__":
     
 if __name__ == "__other__": 
     
-    
     print(
     """
     Visualizing some predictions for the autoencoder
@@ -135,8 +138,19 @@ if __name__ == "__other__":
         fun.visualize(raster, third_dim=False)
         
         # visualizing prediction
-        pred = trained_model.predict(raster[None,:,:,:].float().cuda(), data_fusion=args.data_fusion)[0].cpu()
+        pred = trained_model.predict(raster[None,:,:,:].float().cuda(), args)[0].cpu()
         fun.visualize(pred.detach().numpy().squeeze(), third_dim=False, defiance=args.defiance)
+        
+        if args.defiance:
+            tiles_rad = raster[1,:,:]
+            pred_rad = pred[1,:,:]
+            d_mat_rad = pred[2,:,:]
+            
+            plt.title('loss per number of epochs')
+            plt.xlabel('MSE')
+            plt.ylabel('defiance')
+            plt.plot(((tiles_rad - pred_rad)**2).cpu().detach().numpy(), (d_mat_rad).cpu().detach().numpy(), 'o')
+            plt.show()
        
     print(
     '''
@@ -169,17 +183,14 @@ if __name__ == "__other__":
     nb = 715
     ind = nb
     ## running cd model
-    rast1 = numpy_rasters["1954"][nb][None,:,:,:]
+    rast1 = numpy_rasters["1966"][nb][None,:,:,:]
     rast2 = numpy_rasters["1970"][nb][None,:,:,:]
     
-    threshold = 0.75
+    threshold = 1
     
     # computing change raster
     cmap, dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model, args,
-                                                      threshold=threshold)
-    
-    # visualising the part of the code which is not adversarial
-    fun.view_embeddings(code1[:,8:,:,:])
+                                                      threshold=threshold, visualization=True)
 
     print(
     """
@@ -246,7 +257,7 @@ if __name__ == "__other__":
     Visualizing result for the ground truth
     """)
     
-    for i in range(10,20):
+    for i in range(30,40):
         # loading the raster
         nb = i
         rast1 = gt_change["1954"][nb][None,1:,:,:]
@@ -275,9 +286,9 @@ if __name__ == "__other__":
     for year in gt_change:
         
         if args.split:
-            list_codes += [trained_model.encoder(fun.torch_raster(rast[None,1:,:,:]))[:,:8,:,:] for rast in gt_change[year]]
+            list_codes += [trained_model.encoder(fun.torch_raster(rast[None,1:,:,:]), args)[:,:args.nb_channels_split,:,:] for rast in gt_change[year]]
         else:
-            list_codes += [trained_model.encoder(fun.torch_raster(rast[None,1:,:,:])) for rast in gt_change[year]]
+            list_codes += [trained_model.encoder(fun.torch_raster(rast[None,1:,:,:]), args) for rast in gt_change[year]]
         
     # convert them back to numpy matrixes
     np_codes = [rast.detach().cpu().numpy() for rast in list_codes]

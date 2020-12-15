@@ -115,22 +115,24 @@ Making an histogram of the data, ignoring zero values
 
 """
 
-for year in rasters_clipped:
-    
-    # extracting alt and rad
-    alt_rasts = [rast[0] for rast in rasters_clipped[year]]
-    rad_rasts = [rast[1] for rast in rasters_clipped[year]]
-    
-    # getting the total of rasters
-    total_rasters_alt = np.stack(alt_rasts, axis=0)
-    total_rasters_rad = np.stack(rad_rasts, axis=0)
-    
-    fig, data = plt.subplots()
-    data = plt.hist(total_rasters_rad.flatten(), bins='auto', label='radiometry')
-    data = plt.hist(total_rasters_alt.flatten(), bins='auto', label='altitude')
-    plt.legend(loc='upper right')
-    plt.title("Histogram for year " + year)
-    plt.show()
+# =============================================================================
+# for year in rasters_clipped:
+#     
+#     # extracting alt and rad
+#     alt_rasts = [rast[0] for rast in rasters_clipped[year]]
+#     rad_rasts = [rast[1] for rast in rasters_clipped[year]]
+#     
+#     # getting the total of rasters
+#     total_rasters_alt = np.stack(alt_rasts, axis=0)
+#     total_rasters_rad = np.stack(rad_rasts, axis=0)
+#     
+#     fig, data = plt.subplots()
+#     data = plt.hist(total_rasters_rad.flatten(), bins='auto', label='radiometry')
+#     data = plt.hist(total_rasters_alt.flatten(), bins='auto', label='altitude')
+#     plt.legend(loc='upper right')
+#     plt.title("Histogram for year " + year)
+#     plt.show()
+# =============================================================================
 
 """
 
@@ -153,13 +155,13 @@ for year in rasters_clipped:
     rad_rasts = [rast[1] for rast in rasters_clipped[year]]
     
     # subtracting min from alt rasters
-    alt_rasts = [rast - np.min(rast) for rast in alt_rasts]
-    
-    # replacing data in the dictionary
-    rasters_clipped[year] = [np.stack((alt, rad), axis=0) for alt, rad in zip(alt_rasts, rad_rasts)]
+    alt_rasts_cl = [rast - np.min(fun.reject_outliers(rast[np.nonzero(rast)])) for rast in alt_rasts]
     
     # getting all the altitude rasters for the mean and std
-    rasters_alt += alt_rasts.copy()
+    rasters_alt += alt_rasts_cl.copy()
+    
+    # replacing data in the dictionary
+    rasters_clipped[year] = [np.stack((alt, rad), axis=0) for alt, rad in zip(alt_rasts_cl, rad_rasts)]
 
 # getting the total of rasters
 total_rasters_alt = np.stack(rasters_alt, axis=0)
@@ -173,13 +175,6 @@ for year in rasters_clipped:
     rad_rasts = [rast[1] for rast in rasters_clipped[year]]
     alt_rasts = [rast[0] for rast in rasters_clipped[year]]
     
-    # getting the total of rasters
-    total_rasters_rad = np.stack(rad_rasts, axis=0)
-    
-    # getting stat values
-    mu_rad = np.mean(total_rasters_rad)
-    std_rad = np.std(total_rasters_alt)
-    
     # normalizing
     for i in range(len(alt_rasts)):
         
@@ -188,15 +183,12 @@ for year in rasters_clipped:
         non_zero_rad = np.nonzero(rad_rasts[i])
         
         # normalizing
-        #alt_rasts[i][non_zero_alt] = (alt_rasts[i][non_zero_alt] - np.mean(alt_rasts[i][non_zero_alt])) / np.std(alt_rasts[i][non_zero_alt])
         rad_rasts[i][non_zero_rad] = (rad_rasts[i][non_zero_rad] - np.mean(rad_rasts[i][non_zero_rad])) / np.std(rad_rasts[i][non_zero_rad])
+# =============================================================================
+#         alt_rasts[i][non_zero_alt] = (alt_rasts[i][non_zero_alt] - np.mean(alt_rasts[i][non_zero_alt])) / np.std(alt_rasts[i][non_zero_alt])
+# =============================================================================
         alt_rasts[i][non_zero_alt] = (alt_rasts[i][non_zero_alt] - mu_alt) / std_alt
                     
-                    
-    #alt_rasts = [(rast-np.min(rast[np.nonzero(rast)])) / (np.max(rast[np.nonzero(rast)])-np.min(rast[np.nonzero(rast)])) for rast in alt_rasts]
-    #rad_rasts = [(rast-np.min(rast[np.nonzero(rast)])) / (np.max(rast[np.nonzero(rast)])-np.min(rast[np.nonzero(rast)])) for rast in rad_rasts]
-    
-    
     # stacking up into a dictionary
     s_rasters_clipped[year] = [np.stack((alt, rad), axis=0) for alt, rad in zip(alt_rasts, rad_rasts)]
 
@@ -236,7 +228,7 @@ gt = list(gt)
 for i in range(5,6):
     print(i)
     for year in s_rasters_clipped:
-        fun.visualize(s_rasters_clipped[year][i].squeeze(), third_dim=False)
+        fun.visualize(s_rasters_clipped[year][i].squeeze(), third_dim=True)
         
 """
 

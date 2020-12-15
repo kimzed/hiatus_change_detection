@@ -24,8 +24,6 @@ import matplotlib.patches as mpatches
 # this is used for the visualize function
 from mpl_toolkits.mplot3d import Axes3D
 
-import metrics as fun_metrics
-
 def getFeatures(gdf):
     """
     param: a geopanda dataframe
@@ -140,7 +138,7 @@ def visualize(raster, third_dim=True, defiance=False):
         def1.set_title("defiance mns")
         a+b
         # showing the data
-        mns1 = mns1.imshow(raster[0,:,:], vmin=-0.5, vmax=2)
+        mns1 = mns1.imshow(raster[0,:,:], vmin=-1.5, vmax=3)
         col = col.imshow(raster[1,:,:], cmap="gray")
         def1 = def1.imshow(raster[2,:,:], cmap="hot")
         plt.axis("off")
@@ -155,7 +153,7 @@ def visualize(raster, third_dim=True, defiance=False):
         col.set_title("color")
         
         # showing the data
-        mns1 = mns1.imshow(raster[0,:,:], vmin=-0.5, vmax=2)
+        mns1 = mns1.imshow(raster[0,:,:], vmin=-1.5, vmax=3)
         col = col.imshow(raster[1,:,:], cmap="gray")
         plt.axis("off")
         
@@ -303,7 +301,7 @@ def view_u(train, trained_model, args, tile_index = None):
     ax.set(title='x3 : %d x %d x %d' %(x3.shape[1:]))
     
     if args.split:
-        view_embeddings(x3[:,:8,:,:], ax)
+        view_embeddings(x3[:,:args.nb_channels_split,:,:], ax)
         ax = fig.add_subplot(3, 7, 11, aspect=1)
         ax.set(title='y4 : %d x %d x %d' %(y4.shape[1:]))
         
@@ -342,10 +340,11 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
   
   # loading the encoder
   trained_model = trained_model.encoder
+  
   if args.split:
-      code_rast1 = trained_model(input, data_fusion=args.data_fusion)[:,:8,:,:]
+      code_rast1 = trained_model(input, args)[:,:args.nb_channels_split,:,:]
   else:
-      code_rast1 = trained_model(input, data_fusion=args.data_fusion)
+      code_rast1 = trained_model(input, args)
   
   # ============rast2===========
   input = torch.from_numpy(rast2)
@@ -357,9 +356,9 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
 
   #level 3
   if args.split:
-      code_rast2 = trained_model(input, data_fusion=args.data_fusion)[:,:8,:,:]
+      code_rast2 = trained_model(input, args)[:,:args.nb_channels_split,:,:]
   else:
-      code_rast2 = trained_model(input, data_fusion=args.data_fusion)
+      code_rast2 = trained_model(input, args)
       
   # ============cmap===========
   # difference matrix on the code
@@ -378,40 +377,42 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
   # creating the binary change map
   cmap_bin = CD_code_cl.copy()
   cmap_bin[non_zero_mat] = 1
-  
+
   if visualization == True:
       # show various embeddings in the model
       fig = plt.figure(figsize=(25, 10)) #adapted dimension
       fig.suptitle("Change detection on two rasters threshold: {}".format(threshold))
-      ax = fig.add_subplot(3, 7, 9, aspect=1)
+      ax = fig.add_subplot(3, 7, 10, aspect=1)
       ax.set(title='Change map: float' )
       ax.imshow(CD_code.cpu().detach().numpy().squeeze(), cmap="hot")
       plt.axis('off')
       
       ax = fig.add_subplot(3, 7, 2, aspect=1)
       ax.set(title='MNS 1' )
-      ax.imshow(alt1.cpu().detach().numpy().squeeze(),vmin=-0.5, vmax=2)
+      ax.imshow(alt1.cpu().detach().numpy().squeeze(), vmin=-1, vmax=2)
       plt.axis('off')
       
       ax = fig.add_subplot(3, 7, 16, aspect=1)
       ax.set(title='MNS 2' )
-      ax.imshow(alt2.cpu().detach().numpy().squeeze(),vmin=-0.5, vmax=2)
+      ax.imshow(alt2.cpu().detach().numpy().squeeze(), vmin=-1, vmax=2)
       plt.axis('off')
       
       ax = fig.add_subplot(3, 7, 1, aspect=1)
-      ax.set(title='Raster 1' )
+      ax.set(title='Radiometry 1' )
       ax.imshow(rad1.cpu().numpy().squeeze(), cmap="gray")
       plt.axis('off')
       
       ax = fig.add_subplot(3, 7, 15, aspect=1)
-      ax.set(title='Raster 2' )
+      ax.set(title='Radiometry 2' )
       ax.imshow(rad2.cpu().numpy().squeeze(), cmap="gray")
       plt.axis('off')
       
-      ax = fig.add_subplot(3, 7, 10, aspect=1)
-      ax.set(title='Min value: %1.1f, threshold: %2.1f' % (cmap_bin.min(), threshold))
-      ax.imshow(cmap_bin.squeeze())
-      plt.axis('off')
+# =============================================================================
+#       ax = fig.add_subplot(3, 7, 10, aspect=1)
+#       ax.set(title='Min value: %1.1f, threshold: %2.1f' % (cmap_bin.min(), threshold))
+#       ax.imshow(cmap_bin.squeeze())
+#       plt.axis('off')
+# =============================================================================
       
       ax = fig.add_subplot(3, 7, 3, aspect=1)
       ax.set(title='Code raster 1' )
@@ -507,9 +508,10 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
               
               ax = fig.add_subplot(3, 7, 8, aspect=1)
               ax.set(title='ROC curve, AUC: %1.2f' % (auc))
-              ax.plot(fpr, tpr, linestyle='--')
-              ax.plot(fpr_alt, tpr_alt, linestyle=':')
-              ax.plot(fpr_rad, tpr_rad, linestyle='-')
+              ax.plot(fpr, tpr, linestyle='--', label="model")
+              ax.plot(fpr_alt, tpr_alt, linestyle=':', label="mns")
+              ax.plot(fpr_rad, tpr_rad, linestyle='-', label="radio")
+              ax.legend()
              
           except:
               None
@@ -521,7 +523,6 @@ def clipping_rasters(dict_rasters, boxes):
     """
     params: dictionary with years as key and corresponding rasters as values, 
             boxes as a list of dictionaries containing bounding boxes
-            
     fun: outputs a dictionary with years as keys and as values the clipped
          rasters
     """
@@ -684,3 +685,52 @@ def train_val_dataset(dataset, gt, val_split=0.25):
         return datasets
 
 
+def visu_result_model(losses):
+    """
+    
+    shows various graphs with the losses from our model
+    
+    """
+    
+    # graphs of different losses
+    plt.title('loss per number of epochs')
+    plt.xlabel('epoch')
+    plt.ylabel('loss')
+    plt.plot(range(len(losses["tot"])), losses["tot"])
+    plt.show()
+  
+    plt.title('loss mns per number of epochs')
+    plt.xlabel('epoch')
+    plt.ylabel('loss')
+    plt.plot(range(len(losses["mns"])), losses["mns"])
+    plt.show()
+  
+    plt.title('loss rad per number of epochs')
+    plt.xlabel('epoch')
+    plt.ylabel('loss')
+    plt.plot(range(len(losses["alt"])), losses["alt"])
+    plt.show()
+  
+    plt.title('accuracy of the discriminator')
+    plt.xlabel('epoch')
+    plt.ylabel('accuracy')
+    plt.plot(range(len(losses["accu"])), losses["accu"])
+    plt.show()
+  
+    plt.title('AUC')
+    plt.xlabel('epoch')
+    plt.ylabel('auc')
+    plt.plot(range(len(losses["auc"])), losses["auc"])
+    plt.show()
+  
+    print("AUC on average is {} ".format(np.mean(losses["auc"])))
+    print("AUC sd is {} ".format(np.std(losses["auc"])))
+   
+    return None
+
+
+def reject_outliers(data, m = 3.):
+    d = np.abs(data - np.median(data))
+    mdev = np.median(d)
+    s = d/mdev if mdev else 0.
+    return data[s<m]

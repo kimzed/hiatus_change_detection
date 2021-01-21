@@ -4,13 +4,11 @@
 # Cédric BARON
 
 # loading required packages
-import torch
-import random
-from torch.utils.tensorboard import SummaryWriter
 import os
 import numpy as np
 import argparse
-import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from torch.utils.data import Subset
 
 # for manual visualisation
 from rasterio.plot import show
@@ -23,6 +21,7 @@ import utils as fun
 import train as train
 import evaluate as eval_model
 import metrics as fun_metrics
+import model as mod
 
 def main():
     
@@ -31,49 +30,54 @@ def main():
     
     # Optimization arguments
     parser.add_argument('--lr', default=0.01, type=float, help='Initial learning rate')
-    parser.add_argument('--lr_decay', default=0.5, type=float, help='Multiplicative factor used on learning rate at `lr_steps`')
+    parser.add_argument('--lr_decay', default=0.1, type=float, help='Multiplicative factor used on learning rate at `lr_steps`')
     parser.add_argument('--lr_steps', default=[50, 100, 1000, 1500], help='List of epochs where the learning rate is decreased by `lr_decay`')
-    parser.add_argument('--epochs', default=20, type=int, help='Number of epochs to train. If <=0, only testing will be done.')
-    parser.add_argument('--batch_size', default=92, type=int, help='Batch size')
+    parser.add_argument('--epochs', default=1, type=int, help='Number of epochs to train. If <=0, only testing will be done.')
+    parser.add_argument('--batch_size', default=4, type=int, help='Batch size')
     parser.add_argument('--optim', default='adam', help='Optimizer: sgd|adam')
-    parser.add_argument('--grad_clip', default=1, type=float, help='Element-wise clipping of gradient. If 0, does not clip')
+    parser.add_argument('--grad_clip', default=0, type=float, help='Element-wise clipping of gradient. If 0, does not clip')
     
     # Learning process arguments
     parser.add_argument('--cuda', default=1, type=int, help='Bool, use cuda')
-    parser.add_argument('--test_nth_epoch', default=1, type=int, help='Test each n-th epoch during training')
-    parser.add_argument('--save_nth_epoch', default=1, type=int, help='Save model each n-th epoch during training')
+    parser.add_argument('--test_auc', default=1, type=int, help='Test each n-th epoch during training')
+    parser.add_argument('--load_best_model', default=1, type=int, help='Load the model with the best result')
 
     # Dataset
     parser.add_argument('--dataset', default='frejus_dataset', help='Dataset name: frejus_dataset')
     
     # Model
     parser.add_argument('--seed', default=1, type=int, help='Seed for random initialisation')
-    parser.add_argument('--data_fusion', default=True, help='Including data fusion')
-    parser.add_argument('--adversarial', default=True, help='Making the model adversarial')
-    parser.add_argument('--defiance', default=False, help='Including defiance')
-    parser.add_argument('--split', default=True, help='Making a split on the code')
-    parser.add_argument('--auto_encod', default=True, help='Activating the auto-encoder')
+    parser.add_argument('--save', default=0, type=int, help='Seed for random initialisation')
+    parser.add_argument('--data_fusion', default=0, help='Including data fusion')
+    parser.add_argument('--adversarial', default=0, help='Making the model adversarial')
+    parser.add_argument('--defiance', default=0, help='Including defiance')
+    parser.add_argument('--split', default=0, help='Making a split on the code')
+    parser.add_argument('--auto_encod', default=1, help='Activating the auto-encoder')
     
     # Encoder
-    parser.add_argument('--conv_width', default=[8,8,16,16,16,16], help='Layers size')
+    parser.add_argument('--conv_width', default=[8,8,16,16,16], help='Layers size')
     
     # Decoder
-    parser.add_argument('--dconv_width', default=[8,8,8,8], help='Layers size')
+    parser.add_argument('--dconv_width', default=[16,16,8,8,8], help='Layers size')
+    
+    # Defiance
+    parser.add_argument('--def_width', default=[16,16,16,16,16], help='Layers size')
     
     # Discriminator
     parser.add_argument('--nb_channels_split', default=8, type=int, help='Number of channels for the input to the discriminator')
-    parser.add_argument('--disc_width', default=[16,16,16,16,16,16,16,16,16], help='Layers size')
+    parser.add_argument('--disc_width', default=[32,16,16,16,16,16,16,16,16], help='Layers size')
     parser.add_argument('--nb_trains_discr', default=1, type=int, help='Number of times the discriminator is trained compared to the autoencoder')
-    parser.add_argument('--disc_loss_weight', default=0.1, type=float, help='Weight applied on the adversarial loss with full model')
-    parser.add_argument('--opti_adversarial_encoder', default=False, help='Trains the encoder weights')
+    parser.add_argument('--disc_loss_weight', default=0.15, type=float, help='Weight applied on the adversarial loss with full model')
+    parser.add_argument('--opti_adversarial_encoder', default=0, help='Trains the encoder weights')
     
     args = parser.parse_args()
     args.start_epoch = 0
     
+    # we increase the width of the encoder
+    args.conv_width = [2*x for x in args.conv_width]
+    
     # setting the seed
-# =============================================================================
-#     set_seed(args.seed, args.cuda)
-# =============================================================================
+    fun.set_seed(args.seed, args.cuda)
     
     # Decide on the dataset
     if args.dataset=='frejus_dataset':
@@ -81,37 +85,27 @@ def main():
         # loading the dataset, getting a raster for later data visualisation
         # after every epoch
         import frejus_dataset
-        train_data, gt_change, numpy_rasters, ex_raster = frejus_dataset.get_datasets(ex_raster=True)
-        
-    ## working with tensorboard
-    writer = SummaryWriter('runs/0212_1_test')
+        # loading the data
+        train_data, gt_change, numpy_rasters = frejus_dataset.get_datasets(["1954","1966","1970", "1978", "1989"])
     
+    ## we take a test set of the gt_change for evaluation (20%)
+    # creating a new dict for gt test
+    gt_change_test = {}
+    # getting a single subset list throughout the years
+    train_idx, val_idx = train_test_split(list(range(len(gt_change["1970"]))), test_size=0.30)
+    for year in gt_change:
+        gt_change_test[year] = Subset(gt_change[year], val_idx)
+
     # training the model
-    trained_model = train.train_full(args, train_data, writer, gt_change,
-                                                    ex_raster)
+    trained_model = train.train_full(args, train_data, gt_change_test)
     
     return args, gt_change, numpy_rasters, trained_model, train_data
 
-
-# =============================================================================
-# def set_seed(seed, cuda=True):
-#     """ 
-#     Sets seeds in all frameworks
-#     """
-#     
-#     random.seed(seed)
-#     np.random.seed(seed)
-#     torch.manual_seed(seed)
-#     
-#     if cuda: 
-#         torch.cuda.manual_seed(seed)  
-# =============================================================================
-        
 ###############################################################################
 ###############################################################################
 ###############################################################################
         
-if __name__ == "__main__": 
+if __name__ == "__main__":
     
     print(
     """
@@ -121,77 +115,18 @@ if __name__ == "__main__":
     # running the model
     args, gt_change, numpy_rasters, trained_model, datasets = main()
     
-    # removing the year vector from the data
-    datasets = [data[0] for data in datasets]
+# =============================================================================
+#     # removing the year vector from the data
+#     datasets = [data[0] for data in datasets]
+# =============================================================================
     
 if __name__ == "__other__": 
     
-    print(
-    """
-    Visualizing some predictions for the autoencoder
-    """)
+    load_model=False
     
-    for i in range(5):
+    if load_model == True:
+        trained_model, args = fun.load_model("evaluation_models/AE-MModal+DAN", "evaluation_models/AE-MModal+DAN.txt")
         
-        # visualizing training raster
-        raster = datasets[i]
-        fun.visualize(raster, third_dim=False)
-        
-        # visualizing prediction
-        pred = trained_model.predict(raster[None,:,:,:].float().cuda(), args)[0].cpu()
-        fun.visualize(pred.detach().numpy().squeeze(), third_dim=False, defiance=args.defiance)
-        
-        if args.defiance:
-            tiles_rad = raster[1,:,:]
-            pred_rad = pred[1,:,:]
-            d_mat_rad = pred[2,:,:]
-            
-            plt.title('loss per number of epochs')
-            plt.xlabel('MSE')
-            plt.ylabel('defiance')
-            plt.plot(((tiles_rad - pred_rad)**2).cpu().detach().numpy(), (d_mat_rad).cpu().detach().numpy(), 'o')
-            plt.show()
-       
-    print(
-    '''
-    Now we are going to visualize various embeddings in the model itself
-    ''')
-    
-    # visualizing for a random index number the inner embeddings
-    fun.view_u(datasets, trained_model, args, random.randint(0, 900))
-    
-    # visualizing embedding inside the model
-    nb = random.randint(0, 900)
-    fun.view_u(numpy_rasters["1966"], trained_model, args, nb)
-    fun.view_u(numpy_rasters["1970"], trained_model, args, nb)
-    
-    print(
-    """
-    Performing change detection analysis on actual data
-    """)
-    
-    ind = random.randint(0, 900)
-    
-    # interesting nbs 54-70: 783, 439,746, 201 706 715
-    # no change 66-70: 245 799 406 437, 715
-    
-    ind = random.randint(0, 900)
-    print(ind)
-    fun.visualize(numpy_rasters["1954"][ind][:,:,:], third_dim=False)
-    fun.visualize(numpy_rasters["1989"][ind][:,:,:], third_dim=False)
-    
-    nb = 715
-    ind = nb
-    ## running cd model
-    rast1 = numpy_rasters["1966"][nb][None,:,:,:]
-    rast2 = numpy_rasters["1970"][nb][None,:,:,:]
-    
-    threshold = 1
-    
-    # computing change raster
-    cmap, dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model, args,
-                                                      threshold=threshold, visualization=True)
-
     print(
     """
     Checking performance on ground truth change maps
@@ -199,152 +134,31 @@ if __name__ == "__other__":
     rasters subtraction)
     """)
     
-    # getting confusion matrix on 
-    # making a list of possible thresholds for the confusion matrix
-    thresholds = [0, 0.46, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.25, 2.5, 2.75, 3]
-    
     ## evaluating the model
-    pred, y, classes = eval_model.evaluate_model(gt_change, trained_model,
+    pred, y, classes = eval_model.generate_prediction_model(gt_change, trained_model,
                                                  args)
 
-    # calculating the confusion matrix
-    for thresh in thresholds:
-        
-        # converting to binary
-        binary_vec = fun.convert_binary(pred, thresh)
-        
-        # visualizing the confusion matrix
-        fun_metrics.confusion_matrix_visualize(binary_vec, y, thresh)
-        
-        # evaluating the precision per class
-        fun_metrics.class_precision(binary_vec, y, classes)
-        
     # ROC
     fun_metrics.visualize_roc(y, pred, return_thresh=False)
     
     ## evaluate the baseline
     # get prediction and targets with the baseline
-    pred_alt, pred_rad, y = eval_model.evaluate_baseline(gt_change)
+    pred_alt, pred_rad, y = eval_model.generate_prediction_baseline(gt_change)
     
     ## making the ROC curve
-    thresh = fun_metrics.visualize_roc(y, pred_alt, return_thresh=True)
+    fun_metrics.visualize_roc(y, pred_alt, return_thresh=True)
     fun_metrics.visualize_roc(y, pred_rad)
     
-    # calculating the confusion matrix for alt
-    for thresh in thresholds:
-        
-        # converting to binary
-        binary_vec_alt = fun.convert_binary(pred_alt, thresh)
-        
-        # visualizing the confusion matrix
-        fun_metrics.confusion_matrix_visualize(binary_vec_alt, y, thresh)
-        
-        # evaluating the precision per class
-        fun_metrics.class_precision(binary_vec_alt, y, classes)
-    
-    # calculating the confusion matrix for radiometry
-    for thresh in thresholds:
-        
-        # converting to binary
-        binary_vec_rad = fun.convert_binary(pred_rad, thresh)
-        
-        # visualizing the confusion matrix
-        fun_metrics.confusion_matrix_visualize(binary_vec_rad, y, thresh)
-
-    
-    print(
-    """
-    Visualizing result for the ground truth
-    """)
-    
-    for i in range(30,40):
-        # loading the raster
-        nb = i
-        rast1 = gt_change["1954"][nb][None,1:,:,:]
-        rast2 = gt_change["1970"][nb][None,1:,:,:]
-        
-        # loading the gt
-        gts = [gt_change["1954"][nb][None,0,:,:].squeeze(), 
-               gt_change["1970"][nb][None,0,:,:].squeeze()]
-        
-        
-        cmap, dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model,
-                                                          args,
-                                                          visualization=True,
-                                                          threshold=threshold, gts=gts)
-        
     print(
     """
     Performing normalized mutual information for continuous variables
     """)
-        
-    ## extracting the codes
-    # load list of codes
-    list_codes = []
     
-    # convert the rasters into codes
-    for year in gt_change:
-        
-        if args.split:
-            list_codes += [trained_model.encoder(fun.torch_raster(rast[None,1:,:,:]), args)[:,:args.nb_channels_split,:,:] for rast in gt_change[year]]
-        else:
-            list_codes += [trained_model.encoder(fun.torch_raster(rast[None,1:,:,:]), args) for rast in gt_change[year]]
-        
-    # convert them back to numpy matrixes
-    np_codes = [rast.detach().cpu().numpy() for rast in list_codes]
-        
-    # stacking into one matrix
-    matrix_codes = np.stack(np_codes, axis=0)
-    matrix_codes = matrix_codes.squeeze()
+
+    codes_clean, labels_clean = fun.prepare_codes_metrics(gt_change, args, trained_model)
     
-    # reshaping
-    if args.split:
-        flat_codes = matrix_codes.transpose(0,2,3,1).reshape((matrix_codes.shape[0]*32*32, 8))
-    else:
-        flat_codes = matrix_codes.transpose(0,2,3,1).reshape((matrix_codes.shape[0]*32*32, 16))
-        
-    ## extracting the altitude
-    # load list of mns
-    list_mns = []
-    
-    # loading the mns
-    for year in gt_change:
-        list_mns += [rast[1,:,:] for rast in gt_change[year]]
-        
-    # reshape to have one single matrix
-    flat_mns = fun.prepare_nmi(list_mns)
-    
-    ## extracting the radiometry
-    # load list of rad
-    list_rad = []
-    
-    # loading the rad
-    for year in gt_change:
-        list_rad += [rast[2,:,:] for rast in gt_change[year]]
-        
-    # reshape to have one single matrix
-    flat_rad = fun.prepare_nmi(list_rad)
-    
-    ## extracting the labels
-    # load list of labels
-    list_labels = []
-    
-    # loading the labels
-    for year in gt_change:
-        list_labels += [rast[0,:,:] for rast in gt_change[year]]
-        
-    # transposing into one matrix
-    flat_labels = fun.prepare_nmi(list_labels, discrete=True)
-    
-    ## removing the no data values
-    # getting the nodata matrix
-    data_index = flat_labels != 0
-    
-    # applying the mask
-    labels_clean = flat_labels[data_index]
-    codes_clean = flat_codes[data_index, :]
-    mns_clean = flat_mns[data_index]
-    rad_clean = flat_rad[data_index]
+    mns_clean = fun.prepare_data_metrics(gt_change, 1)
+    rad_clean = fun.prepare_data_metrics(gt_change, 2)
     
     ## getting the number of pixels per classes
     nb_build = np.count_nonzero(labels_clean == 1)
@@ -376,35 +190,103 @@ if __name__ == "__other__":
     """
     Making a linear SVM
     """)
-    
+        
     ## linear svm with the model
-    conf_mat_model, class_report_model = fun_metrics.svm_accuracy_estimation(codes_clean,
+    conf_mat_model, class_report_model, scores_cv = fun_metrics.svm_accuracy_estimation(codes_clean,
                                                                              labels_clean)
     
     ## linear svm with the mns
-    conf_mat_mns, class_report_mns = fun_metrics.svm_accuracy_estimation(mns_clean,
+    conf_mat_mns, class_report_mns, scores_cv = fun_metrics.svm_accuracy_estimation(mns_clean,
                                                                              labels_clean)
     
     ## linear svm with the rad
-    conf_mat_rad, class_report_rad = fun_metrics.svm_accuracy_estimation(rad_clean,
+    conf_mat_rad, class_report_rad, scores_cv = fun_metrics.svm_accuracy_estimation(rad_clean,
                                                                              labels_clean)
+    
+    ### Linear svm but distinct geographical locations
+    # getting ids for training and validation sets
+    train_idx, val_idx = train_test_split(list(range(len(gt_change["1954"]))), test_size=0.25)
 
+    
+    gt_change_train = {}
+    gt_change_test = {}
+    
+    for year in gt_change:
+        gt_change_train[year] = Subset(gt_change[year], train_idx)
+        gt_change_test[year] = Subset(gt_change[year], val_idx)
+    
+    # data for train
+    codes_train, labels_train = fun.prepare_codes_metrics(gt_change_train, args, trained_model)
+    mns_train = fun.prepare_data_metrics(gt_change_train, 1)
+    rad_train= fun.prepare_data_metrics(gt_change_train, 2)
+    
+    # data for test
+    codes_test, labels_test = fun.prepare_codes_metrics(gt_change_test, args, trained_model)
+    mns_test = fun.prepare_data_metrics(gt_change_test, 1)
+    rad_test = fun.prepare_data_metrics(gt_change_test, 2)
+    
+    ## linear svm with the model
+    conf_mat_model, class_report_model, scores_cv_model = fun_metrics.svm_accuracy_estimation_2(codes_train, codes_test, labels_train, labels_test, cv=False)
+    
+    ## linear svm with the mns
+    conf_mat_mns, class_report_mns, scores_cv_mns = fun_metrics.svm_accuracy_estimation_2(mns_train, mns_test, labels_train, labels_test, cv=False)
+    
+    ## linear svm with the rad
+    conf_mat_rad, class_report_rad, scores_cv_rad = fun_metrics.svm_accuracy_estimation_2(rad_train, rad_test, labels_train, labels_test, cv=False)
+    
+    
+    ## testing with only one year for train
+    # getting ids for training and validation sets
+    gt_change_train = {}
+    gt_change_test = {}
+    
+    for year in gt_change:
+        if year == "1989":
+            gt_change_train[year] =gt_change[year]
+        else:
+            gt_change_test[year] = gt_change[year]
+    
+    # data for train
+    codes_train, labels_train = fun.prepare_codes_metrics(gt_change_train, args, trained_model)
+    mns_train = fun.prepare_data_metrics(gt_change_train, 1)
+    rad_train= fun.prepare_data_metrics(gt_change_train, 2)
+    
+    # data for test
+    codes_test, labels_test = fun.prepare_codes_metrics(gt_change_test, args, trained_model)
+    mns_test = fun.prepare_data_metrics(gt_change_test, 1)
+    rad_test = fun.prepare_data_metrics(gt_change_test, 2)
+    
+    ## linear svm with the model
+    conf_mat_model, class_report_model, scores_cv_model = fun_metrics.svm_accuracy_estimation_2(codes_train, codes_test, labels_train, labels_test, cv=False)
+    
+    ## linear svm with the mns
+    conf_mat_mns, class_report_mns, scores_cv_mns = fun_metrics.svm_accuracy_estimation_2(mns_train, mns_test, labels_train, labels_test, cv=False)
+    
+    ## linear svm with the rad
+    conf_mat_rad, class_report_rad, scores_cv_rad = fun_metrics.svm_accuracy_estimation_2(rad_train, rad_test, labels_train, labels_test, cv=False)
+    
+    print(
+    """
+    We now test the results for several models
+    """)
+    
+    import warnings
+    warnings.filterwarnings('ignore')
+    
+    eval_model.evaluate_model("AE-RAD", gt_change)
+    eval_model.evaluate_model("AE-MModal", gt_change)
+    eval_model.evaluate_model("AE-MModal+DAN", gt_change)
+    
+    
+    print("""
+       Now we do transfer learning   
+    """)
+    
+    trained_model, args = fun.load_model("evaluation_models/AE-MModal+DAN", "evaluation_models/AE-MModal+DAN.txt")
 
+    args.epochs = 2
+
+    train.train_full_transfer_learning(args, datasets, gt_change, trained_model)
     
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+        
+        

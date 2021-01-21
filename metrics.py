@@ -15,6 +15,10 @@ from sklearn.svm import SVC
 from sklearn.metrics import classification_report, confusion_matrix
 import torch
 from sklearn.preprocessing import RobustScaler
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import KFold
+from sklearn.preprocessing import scale
+from sklearn import preprocessing
 
 # importing functions from other files
 import utils as fun
@@ -47,7 +51,10 @@ class ConfusionMatrixBinary:
 
 
 def visualize_roc(y, pred, return_thresh = False):
-    
+    """
+    Function to perform AUC calculation, plots a ROC curve as well
+    Can output the thresholds used
+    """
     ## making the ROC curve
     fpr, tpr, thresholds = metrics.roc_curve(y, pred)
     auc = metrics.roc_auc_score(y, pred)
@@ -65,8 +72,6 @@ def visualize_roc(y, pred, return_thresh = False):
     pyplot.legend()
     # show the plot
     pyplot.show()
-    
-   
     
     ## returning thresholds
     result = None
@@ -100,7 +105,11 @@ def confusion_matrix_visualize(pred, y, thresh):
 
 
 def class_precision(binary_vec, y, classes):
+    """
+    Function to evaluate the precision per class for change/no change
+    args are the bianary vect (predictions), the binary ground truth and the classes
     
+    """
     # getting boolean vectors
     false_values = binary_vec != y
     true_values = binary_vec == y
@@ -139,6 +148,9 @@ def class_precision(binary_vec, y, classes):
 
 
 def NMI_continuous_discrete(labels_discrete, data_continuous, nb_classes, labels, classes_idx):
+    """
+    Function to compute the normalised mutual information
+    """
     
     # number of samples
     N = len(labels_discrete)
@@ -200,7 +212,7 @@ def NMI_continuous_discrete(labels_discrete, data_continuous, nb_classes, labels
     return NMI_avg
 
 
-def svm_accuracy_estimation(data, labels):
+def svm_accuracy_estimation(data, labels, cv=False):
     
     ## linear svm with the mns
     # loading the data
@@ -216,30 +228,84 @@ def svm_accuracy_estimation(data, labels):
         tensor_val = torch.tensor(dataset['val'])[:,None]
         tensor_gt_val = torch.tensor(dataset['gt_val'])[:,None]
     
-    scaler = RobustScaler()
+    scaler = preprocessing.StandardScaler()
+    
     tensor_train = scaler.fit_transform(tensor_train)
     tensor_val = scaler.fit_transform(tensor_val)
     
-    
-    # loading the model
-    svclassifiers = SVC(kernel='linear')
+    # loading the model, ovo is one against all, C is the soft margin
+    svclassifier = SVC(kernel='linear', decision_function_shape='ovr', C=0.01,
+                       class_weight="balanced")
     
     # training the model
-    svclassifiers.fit(tensor_train, dataset['gt_train'])
+    svclassifier.fit(tensor_train, dataset['gt_train'])
     
     # predicting the labels
-    pred_label = svclassifiers.predict(tensor_val)
+    pred_label = svclassifier.predict(tensor_val)
     
     # printing  results
     conf_mat = confusion_matrix(tensor_gt_val, pred_label)
     class_report = classification_report(tensor_gt_val, pred_label)
     
-    return conf_mat, class_report
+    # performing a cross validation (optional)
+    if cv:
+        # prepare the cross-validation procedure
+        cv = KFold(n_splits=10, random_state=1, shuffle=True)
+        
+        # performing a k fold validation
+        scores_cv = cross_val_score(svclassifier, tensor_val, tensor_gt_val,
+                                cv=cv, scoring='f1_macro')
+    else:
+        scores_cv=None
+    
+    return conf_mat, class_report, scores_cv
 
 
 
 
-
-
-
+def svm_accuracy_estimation_2(data_train, data_test, labels_train, labels_test, cv=False):
+    
+    ## linear svm with the mns
+    # loading the data
+    tensor_train = torch.tensor(data_train)
+    tensor_val = torch.tensor(data_test)
+    tensor_gt_val = torch.tensor(labels_test)
+    
+    if len(list(tensor_train.shape)) == 1:
+        
+        tensor_train = torch.tensor(data_train)[:,None]
+        tensor_val = torch.tensor(data_test)[:,None]
+        tensor_gt_val = torch.tensor(labels_test)[:,None]
+    
+    scaler = preprocessing.StandardScaler()
+    
+    tensor_train = scaler.fit_transform(tensor_train)
+    tensor_val = scaler.fit_transform(tensor_val)
+    
+    # loading the model, ovo is one against all, C is the soft margin
+    svclassifier = SVC(kernel='linear', decision_function_shape='ovr', C=0.01,
+                       class_weight="balanced")
+    
+    # training the model
+    svclassifier.fit(tensor_train, labels_train)
+    
+    # predicting the labels
+    pred_label = svclassifier.predict(tensor_val)
+    
+    # printing  results
+    conf_mat = confusion_matrix(tensor_gt_val, pred_label)
+    class_report = classification_report(tensor_gt_val, pred_label)
+    
+    # performing a cross validation (optional)
+    if cv:
+        # prepare the cross-validation procedure
+        cv = KFold(n_splits=10, random_state=1, shuffle=True)
+        
+        # performing a k fold validation
+        scores_cv = cross_val_score(svclassifier, tensor_val, tensor_gt_val,
+                                cv=cv, scoring='f1_macro')
+    else:
+        scores_cv=None
+    
+    return conf_mat, class_report, scores_cv
 

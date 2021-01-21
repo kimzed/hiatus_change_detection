@@ -26,9 +26,8 @@ class AdversarialAutoEncoder(nn.Module):
       self.AE_params = list(self.encoder.parameters()) + list(self.decoder.parameters())
       
       # saving the optimizers in the object
-      self.opti_AE =  optim.Adam(self.AE_params, learning_rate, weight_decay=1e-5)
+      self.opti_AE =  optim.Adam(self.AE_params, learning_rate, weight_decay=0)
       self.opti_D =  optim.Adam(self.discr.parameters(), 0.002, weight_decay=1e-5)
-      
       
   def predict(self, input, args):
       
@@ -64,30 +63,30 @@ class Encoder(nn.Module):
     #nn.Conv2d(depth_of_input, depth_of_output,size_of_kernel (3),padding=1, padding_mode='reflection')
     #nn.BatchNorm2d(depth_of_layer)
     # n_channels is the number of channels from the input
-    self.c1 = nn.Sequential(nn.Conv2d(1, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
-    self.sc2 = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],4,padding=1, stride=2, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
-    self.c3 = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.LeakyReLU(True))
-    self.sc4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
-    self.c5 = nn.Sequential(nn.Conv2d(encoder_conv_width[3],encoder_conv_width[4],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[4]),nn.LeakyReLU(True))
+    self.c1_rad = nn.Sequential(nn.Conv2d(1, encoder_conv_width[0],kernel_size=3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
+    self.sc2_rad = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],kernel_size=4,padding=1, stride=2, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
+    self.c3 = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],kernel_size=3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.LeakyReLU(True))
+    self.sc4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],kernel_size=4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
+    self.c5 = nn.Sequential(nn.Conv2d(encoder_conv_width[3],encoder_conv_width[4],kernel_size=3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[4]),nn.LeakyReLU(True))
    
     # network for the altitude
-    self.ca1 = nn.Sequential(nn.Conv2d(1, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
-    self.sca2 = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
-    self.ca3 = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.LeakyReLU(True))
-    self.sca4 = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
+    self.c1_mns = nn.Sequential(nn.Conv2d(1, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
+    self.sc2_mns = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],kernel_size=4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
+    self.c3_mns = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],kernel_size=3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.LeakyReLU(True))
+    self.sc4_mns = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],kernel_size=4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
 
     #weight initialization
-    self.c1[0].apply(self.init_weights)
-    self.sc2[0].apply(self.init_weights)
-    self.ca3[0].apply(self.init_weights)
+    self.c1_rad[0].apply(self.init_weights)
+    self.sc2_rad[0].apply(self.init_weights)
+    self.c3[0].apply(self.init_weights)
     self.sc4[0].apply(self.init_weights)
     self.c5[0].apply(self.init_weights)
     
     # for the DEM part
-    self.ca1[0].apply(self.init_weights)
-    self.sca2[0].apply(self.init_weights)
-    self.c3[0].apply(self.init_weights)
-    self.sca4[0].apply(self.init_weights)
+    self.c1_mns[0].apply(self.init_weights)
+    self.sc2_mns[0].apply(self.init_weights)
+    self.c3_mns[0].apply(self.init_weights)
+    self.sc4_mns[0].apply(self.init_weights)
     
     if args.cuda:
         # running the model on gpu
@@ -95,7 +94,7 @@ class Encoder(nn.Module):
     
   def init_weights(self,layer): #gaussian init for the conv layers
     #nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity="leaky_relu")
-    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='leaky_relu')
     
   def forward(self, input, args):
     """
@@ -112,14 +111,14 @@ class Encoder(nn.Module):
     
     #encoder altitude
     #level 1
-    a1 = self.sca2(self.ca1(alt))
+    a1 = self.sc2_mns(self.c1_mns(alt))
     
     #level 2
-    a2= self.sca4(self.ca3(a1))
+    a2= self.sc4_mns(self.c3_mns(a1))
     
     #encoder visual
     #level 1
-    x1 = self.sc2(self.c1(rad))
+    x1 = self.sc2_rad(self.c1_rad(rad))
     
     if args.data_fusion:
         #level 2
@@ -161,19 +160,17 @@ class Decoder(nn.Module):
 
     #decoder
     # the extra width is added because of concatenation ?
-    self.c6 = nn.Sequential(nn.Conv2d(encoder_conv_width[4], encoder_conv_width[5], 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[5]),nn.LeakyReLU(True))
-    self.t1 = nn.Sequential(nn.ConvTranspose2d(encoder_conv_width[5], decoder_conv_width[0], 2, 2), nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
-    self.c7 = nn.Sequential(nn.Conv2d(decoder_conv_width[0],decoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[0]),nn.LeakyReLU(True))
-    self.c8 = nn.Sequential(nn.Conv2d(decoder_conv_width[0],decoder_conv_width[1],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[1]),nn.LeakyReLU(True))
-    self.t2 = nn.Sequential(nn.ConvTranspose2d(decoder_conv_width[1], decoder_conv_width[1], 2, 2), nn.BatchNorm2d(decoder_conv_width[1]),nn.LeakyReLU(True))
-    self.c9 = nn.Sequential(nn.Conv2d(decoder_conv_width[1],decoder_conv_width[2],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[2]),nn.LeakyReLU(True))
-    self.c10 = nn.Sequential(nn.Conv2d(decoder_conv_width[2],decoder_conv_width[3],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[3]), nn.LeakyReLU(True)) 
+    self.c6 = nn.Sequential(nn.Conv2d(encoder_conv_width[4], decoder_conv_width[0], kernel_size=3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[0]),nn.LeakyReLU(True))
+    self.t1 = nn.Sequential(nn.ConvTranspose2d(decoder_conv_width[0], decoder_conv_width[1], kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(decoder_conv_width[1]),nn.LeakyReLU(True))
+    self.c7 = nn.Sequential(nn.Conv2d(decoder_conv_width[1],decoder_conv_width[1],kernel_size=3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[1]),nn.LeakyReLU(True))
+    self.c8 = nn.Sequential(nn.Conv2d(decoder_conv_width[1],decoder_conv_width[2],kernel_size=3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[2]),nn.LeakyReLU(True))
+    self.t2 = nn.Sequential(nn.ConvTranspose2d(decoder_conv_width[2], decoder_conv_width[2], kernel_size=4, stride=2, padding=1), nn.BatchNorm2d(decoder_conv_width[2]),nn.LeakyReLU(True))
+    self.c9 = nn.Sequential(nn.Conv2d(decoder_conv_width[2],decoder_conv_width[3],kernel_size=3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[3]),nn.LeakyReLU(True))
+    self.c10 = nn.Sequential(nn.Conv2d(decoder_conv_width[3],decoder_conv_width[4],kernel_size=3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[4]), nn.LeakyReLU(True)) 
     
-    #final  layer
-    if args.defiance:
-        self.final = nn.Conv2d(decoder_conv_width[3], 3, 1, padding=0, padding_mode='reflect')
-    else:
-        self.final = nn.Conv2d(decoder_conv_width[3], 2, 1, padding=0, padding_mode='reflect')
+   
+    # aleotoric part
+    self.final = nn.Conv2d(decoder_conv_width[4], 2, 1, padding=0)
     
     # initializing weights
     self.c6[0].apply(self.init_weights)
@@ -185,14 +182,58 @@ class Decoder(nn.Module):
     self.c10[0].apply(self.init_weights)
     self.final.apply(self.init_weights)
     
+# =============================================================================
+#     self.final.weight.data.fill_(1)
+# =============================================================================
+    
     # running the model on gpu
     if args.cuda:
         self.cuda()
     
   def init_weights(self,layer): #gaussian init for the conv layers
     #nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity="leaky_relu")
-    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
+    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='leaky_relu')
     
+  def init_defiance(self, layer):
+# =============================================================================
+#       layer.weight.data.normal_(0, 0.001)
+#       layer.bias.data.fill_(0) 
+# =============================================================================
+      layer.weight.data.normal_(0, 0.001)
+      layer.bias.data.fill_(0) 
+# =============================================================================
+#       layer.weight.data.fill_(0.001) 
+#       
+# =============================================================================
+    
+    
+  def init_defiance(self, layer):
+    # =============================================================================
+    #       layer.weight.data.normal_(0, 0.001)
+    #       layer.bias.data.fill_(0) 
+    # =============================================================================
+      layer.weight.data.normal_(0, 0.001)
+      layer.bias.data.fill_(0) 
+          
+  def init_zeros(self, layer):
+      torch.ones()
+    
+  def add_aleotoric(self):
+      # extra convs defiance
+      self.c11 = nn.Sequential(nn.Conv2d(args.dconv_width[4],args.def_width[0],kernel_size=1),nn.BatchNorm2d(args.def_width[0]), nn.LeakyReLU(True)) 
+      self.c12 = nn.Sequential(nn.Conv2d(args.def_width[0],args.def_width[1],kernel_size=1),nn.BatchNorm2d(args.def_width[1]), nn.LeakyReLU(True)) 
+      self.c13 = nn.Sequential(nn.Conv2d(args.def_width[1],args.def_width[2],kernel_size=1),nn.BatchNorm2d(args.def_width[2]), nn.LeakyReLU(True)) 
+      self.c14 = nn.Sequential(nn.Conv2d(args.def_width[2],args.def_width[3],kernel_size=1),nn.BatchNorm2d(args.def_width[3]), nn.LeakyReLU(True)) 
+      self.c15 = nn.Sequential(nn.Conv2d(args.def_width[3],args.def_width[4],kernel_size=1),nn.BatchNorm2d(args.def_width[4]), nn.LeakyReLU(True)) 
+      self.defi = nn.Conv2d(16, 1, 1, padding=0)
+        
+    
+      # initializing weights
+      self.c11[0].apply(self.init_defiance)
+      self.c12[0].apply(self.init_defiance)
+      self.c13[0].apply(self.init_defiance)
+      self.defi.apply(self.init_defiance)
+      
   def forward(self,input, args):
     """
     the function called to run inference
@@ -208,14 +249,22 @@ class Decoder(nn.Module):
     #level 1       
     y2 = self.t2(y3)
     y1 = self.c10(self.c9(y2))
+    
     out = self.final(y1)
+    
+    if not args.data_fusion:
+        # adding a matrix of zeros for mns
+        none_mat = torch.zeros(out.shape[0], 1, out.shape[2], out.shape[3])
+        none_mat = none_mat.cuda()
+        out[:,0,:,:][:,None,:,:] = none_mat
+        
     
     if args.defiance:
         # including defiance
         defiance_rad = self.sfplus(out[:,2,:,:][:,None,:,:])
         out = torch.cat((out[:,0:2,:,:], defiance_rad), 1)
-    
-    return out
+        
+    return out, y1
 
 
 class Discriminator(nn.Module):
@@ -254,7 +303,7 @@ class Discriminator(nn.Module):
     
     # FC layers
     self.lin = nn.Sequential(nn.Linear(args.disc_width[7], args.disc_width[8]),nn.BatchNorm1d(16),nn.ReLU(True))
-    self.lin2 = nn.Sequential(nn.Linear(args.disc_width[8], 5),nn.BatchNorm1d(5),nn.ReLU(True))
+    self.lin2 = nn.Linear(args.disc_width[8], 5)
     
     # initiating weights
     self.sc1[0].apply(self.init_weights)
@@ -264,7 +313,7 @@ class Discriminator(nn.Module):
     self.sc3[0].apply(self.init_weights)
     self.c3[0].apply(self.init_weights)
     self.lin[0].apply(self.init_weights)
-    self.lin2[0].apply(self.init_weights)
+    self.lin2.apply(self.init_weights)
     
     # running on gpu
     if args.cuda:
@@ -273,6 +322,7 @@ class Discriminator(nn.Module):
   def init_weights(self,layer): #gaussian init for the conv layers
       nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='relu')
     
+
     
   def forward(self, code, args):
     """
@@ -280,7 +330,7 @@ class Discriminator(nn.Module):
     """
     if args.split:
         # splitting the code
-        code = code[:,:8,:,:]
+        code = code[:,:args.nb_channels_split,:,:]
     
     # applying the convolution layers
     x1 = self.c1(self.sc1(code))
@@ -296,6 +346,5 @@ class Discriminator(nn.Module):
     
     # sigmoid activation function
     out = self.softm(x6)
-
+    
     return out
-

@@ -20,9 +20,15 @@ import matplotlib.colors as colors
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Subset
 import matplotlib.patches as mpatches
+import random
+import argparse
+# this is used to load the arguments from the model
+from argparse import Namespace
 
 # this is used for the visualize function
 from mpl_toolkits.mplot3d import Axes3D
+
+import model as mod
 
 def getFeatures(gdf):
     """
@@ -35,7 +41,8 @@ def getFeatures(gdf):
 
 def nn_interpolate(A, new_size):
     """
-    Nearest Neighbor Interpolation, Step by Step
+    Performs a linear interpolation
+    args: A is a numpy matrix, new size is a list
     """
     # get sizes
     old_size = A.shape
@@ -75,6 +82,8 @@ def convert_binary(values, thresh):
     """
     With a given thresholds outputs a vector with binary 0/1
     values
+    args: values as a matrix or a vector, thresh as an int or float
+    
     """
     
     # loading the numpy array
@@ -130,32 +139,38 @@ def visualize(raster, third_dim=True, defiance=False):
     """
     if defiance:
         # creating axes and figures
-        fig, ((mns1, col), (def1, def2)) = plt.subplots(2, 2, figsize=(14, 14)) # Create one plot with figure size 10 by 10
+        fig, ((mns, col), (defi, _)) = plt.subplots(2, 2, figsize=(14, 14)) # Create one plot with figure size 10 by 10
         
         # setting the title
-        mns1.set_title("mns")
+        mns.set_title("mns")
         col.set_title("color")
-        def1.set_title("defiance mns")
-        a+b
+        defi.set_title("defiance mns")
+        mns.axis("off")
+        col.axis("off")
+        defi.axis("off")
+        
         # showing the data
-        mns1 = mns1.imshow(raster[0,:,:], vmin=-1.5, vmax=3)
+        mns = mns.imshow(raster[0,:,:], vmin=-1.5, vmax=3)
         col = col.imshow(raster[1,:,:], cmap="gray")
-        def1 = def1.imshow(raster[2,:,:], cmap="hot")
+        defi = defi.imshow(raster[2,:,:], cmap="hot")#, vmin=0, vmax=2)
         plt.axis("off")
         plt.show()
     
     else:
         # creating axes and figures
-        fig, (mns1, col) = plt.subplots(1, 2, figsize=(14, 14)) # Create one plot with figure size 10 by 10
+        fig, (mns, col) = plt.subplots(1, 2, figsize=(14, 14)) # Create one plot with figure size 10 by 10
         
         # setting the title
-        mns1.set_title("mns")
+        mns.set_title("mns")
         col.set_title("color")
+        mns.axis("off")
+        col.axis("off")
         
         # showing the data
-        mns1 = mns1.imshow(raster[0,:,:], vmin=-1.5, vmax=3)
+        mns = mns.imshow(raster[0,:,:], vmin=-1.5, vmax=3)
+        
         col = col.imshow(raster[1,:,:], cmap="gray")
-        plt.axis("off")
+        
         
         plt.show()
     
@@ -229,9 +244,9 @@ def view_u(train, trained_model, args, tile_index = None):
     
     # converting to adequate format
     try:
-        input = input[None,:,:,:].float().cuda()
+        input = torch_raster((input[None,:,:,:]))
     except:
-        input = torch.from_numpy(input[None,:,:,:]).float().cuda()
+        input = (input[None,:,:,:]).cuda().float()
 
     # loading the encoder
     model = trained_model.encoder
@@ -244,35 +259,35 @@ def view_u(train, trained_model, args, tile_index = None):
     
     ## running the model
     # encoder alt
-    a1 = model.sca2(model.ca1(alt))
+    a1 = model.sc2_mns(model.c1_mns(alt))
     #level 2
-    a3= model.sca4(model.ca3(a1))
+    a3= model.sc4_mns(model.c3_mns(a1))
     
     #encoder
     #level 1
-    x1 = model.sc2(model.c1(rad))
+    x1 = model.sc2_rad(model.c1_rad(rad))
     #level 2
     if args.data_fusion:
         x2= model.c3(x1 + a1)
         
         # extra layer
-        x2_b = model.sc4(x2)
+        x3 = model.sc4(x2)
         
         #level 3
-        x3 = model.c5(x2_b + a3)
+        x4 = model.c5(x3 + a3)
     else:
         x2= model.c3(x1)
         
         # extra layer
-        x2_b = model.sc4(x2)
+        x3 = model.sc4(x2)
         
         #level 3
-        x3 = model.c5(x2_b)
+        x4 = model.c5(x3)
     
     #decoder
     model = trained_model.decoder
     #level 2
-    y4 = model.t1(model.c6(x3))
+    y4 = model.t1(model.c6(x4))
     y3 = model.c8(model.c7(y4))
     
     #level 1
@@ -282,12 +297,22 @@ def view_u(train, trained_model, args, tile_index = None):
     #output        
     print(input.shape)
     
-    # show input
-    show(input[:,0,:,:].detach().cpu())
-    show(input[:,1,:,:].detach().cpu())
+    ## show input
+    # creating axes and figures
+    fig, (mns, col) = plt.subplots(1, 2, figsize=(14, 14)) # Create one plot with figure size 10 by 10
+    # setting the title
+    mns.set_title("mns")
+    col.set_title("color")
+    mns.axis("off")
+    col.axis("off")
     
-    # show various embeddings in the model
-    fig = plt.figure(figsize=(25, 10)) #adapted dimension
+    # plotting the data
+    mns = mns.imshow(numpy_raster(input[:,0,:,:]), vmin=-1.5, vmax=3)
+    col = col.imshow(numpy_raster(input[:,1,:,:]), cmap="gray")
+    plt.show()
+    
+    ## show various embeddings in the model
+    fig = plt.figure(figsize=(25, 10))
     ax = fig.add_subplot(3, 7, 2, aspect=1)
     ax.set(title='x1 : %d x %d x %d' %(x1.shape[1:]))
     view_embeddings(x1, ax)
@@ -295,18 +320,18 @@ def view_u(train, trained_model, args, tile_index = None):
     ax.set(title='x2 : %d x %d x %d' %(x2.shape[1:]))
     view_embeddings(x2, ax)
     ax = fig.add_subplot(3, 7, 10, aspect=1)
-    ax.set(title='x2_b : %d x %d x %d' %(x2.shape[1:]))
-    view_embeddings(x2_b, ax)
-    ax = fig.add_subplot(3, 7, 17, aspect=1)
     ax.set(title='x3 : %d x %d x %d' %(x3.shape[1:]))
+    view_embeddings(x3, ax)
+    ax = fig.add_subplot(3, 7, 17, aspect=1)
+    ax.set(title='x4 : %d x %d x %d' %(x4.shape[1:]))
     
     if args.split:
-        view_embeddings(x3[:,:args.nb_channels_split,:,:], ax)
+        view_embeddings(x4[:,:args.nb_channels_split,:,:], ax)
         ax = fig.add_subplot(3, 7, 11, aspect=1)
         ax.set(title='y4 : %d x %d x %d' %(y4.shape[1:]))
         
     else:
-        view_embeddings(x3, ax)
+        view_embeddings(x4, ax)
         ax = fig.add_subplot(3, 7, 11, aspect=1)
         ax.set(title='y4 : %d x %d x %d' %(y4.shape[1:]))
         
@@ -320,8 +345,6 @@ def view_u(train, trained_model, args, tile_index = None):
     ax = fig.add_subplot(3, 7, 6, aspect=1)
     ax.set(title='y1 : %d x %d x %d' %(y1.shape[1:]))
     view_embeddings(y1, ax)
-    
-    return None
 
 
 def change_detection(rast1, rast2, trained_model, args, gts = False, visualization=False, threshold=5):
@@ -331,8 +354,7 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
   """
   
   # ============rast1===========
-  input = torch.from_numpy(rast1)
-  input = input.float().cuda()
+  input = torch_raster(rast1)
   
   # load rad and reshape it
   rad1 = input[:,1,:,:][:,None,:,:]
@@ -347,8 +369,7 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
       code_rast1 = trained_model(input, args)
   
   # ============rast2===========
-  input = torch.from_numpy(rast2)
-  input = input.float().cuda()
+  input = torch_raster(rast2)
   
   # load rad and reshape it
   rad2 = input[:,1,:,:][:,None,:,:]
@@ -366,23 +387,27 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
   CD_code = torch.mean(CD_code, dim=1)
   CD_code = CD_code ** 0.5
   
+  # values below the threshold are converted to zero
   CD_code_cl = CD_code * (CD_code > threshold).float()
   
   # converting into numpy
-  CD_code_cl = CD_code_cl.cpu().detach().numpy()
+  CD_code_cl = numpy_raster(CD_code_cl)
   
-  # changing into a binary map
+  ## changing into a binary map
+  # checking values that are not zeros
   non_zero_mat = np.nonzero(CD_code_cl)
   
   # creating the binary change map
   cmap_bin = CD_code_cl.copy()
   cmap_bin[non_zero_mat] = 1
 
+  # visualisation of the rasters and the change map
   if visualization == True:
-      # show various embeddings in the model
+      
       fig = plt.figure(figsize=(25, 10)) #adapted dimension
-      fig.suptitle("Change detection on two rasters threshold: {}".format(threshold))
-      ax = fig.add_subplot(3, 7, 10, aspect=1)
+      fig.suptitle("Change detection on two rasters)", ha="right",
+                   size=20)
+      ax = fig.add_subplot(3, 7, 9, aspect=1)
       ax.set(title='Change map: float' )
       ax.imshow(CD_code.cpu().detach().numpy().squeeze(), cmap="hot")
       plt.axis('off')
@@ -407,12 +432,10 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
       ax.imshow(rad2.cpu().numpy().squeeze(), cmap="gray")
       plt.axis('off')
       
-# =============================================================================
-#       ax = fig.add_subplot(3, 7, 10, aspect=1)
-#       ax.set(title='Min value: %1.1f, threshold: %2.1f' % (cmap_bin.min(), threshold))
-#       ax.imshow(cmap_bin.squeeze())
-#       plt.axis('off')
-# =============================================================================
+      ax = fig.add_subplot(3, 7, 10, aspect=1)
+      ax.set(title='Min value: %1.1f, threshold: %2.1f' % (cmap_bin.min(), threshold))
+      ax.imshow(cmap_bin.squeeze())
+      plt.axis('off')
       
       ax = fig.add_subplot(3, 7, 3, aspect=1)
       ax.set(title='Code raster 1' )
@@ -425,7 +448,7 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
       plt.axis('off')
       
       
-      
+      # visualising the ground truth
       if gts:
           
           # sub rasters for mns and radiometry
@@ -471,11 +494,12 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
           ax = fig.add_subplot(3, 7, 11, aspect=1)
           ax.set(title='GT cmap, Nodata is -1' )
           ax.imshow(gt_map, cmap=colors_cmap, norm=norm_cmap)
+          
           ## making the legend
           # loading unique values
           cols = ['black','green','red']
           labels = ['nodata', 'nochange', 'change']
-          # create a patch (proxy artist) for every color 
+          # create a patch for every color 
           patches = [ mpatches.Patch(color=cols[i], label=labels[i]) for i in range(len(labels)) ]
           ax.legend(handles=patches, bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0. )
           
@@ -483,6 +507,7 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
           
           
           # we make the roc analysis if there is relevant GT data
+          # in case there misses change or no change pixels there will be an exception
           try:
               
               ## calcuating the roc
@@ -505,7 +530,7 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
               fpr, tpr, thresholds = metrics.roc_curve(cmap_gt, pred_change)
               auc = metrics.roc_auc_score(cmap_gt, pred_change)
               
-              
+              # plotting
               ax = fig.add_subplot(3, 7, 8, aspect=1)
               ax.set(title='ROC curve, AUC: %1.2f' % (auc))
               ax.plot(fpr, tpr, linestyle='--', label="model")
@@ -543,18 +568,21 @@ def clipping_rasters(dict_rasters, boxes):
         for year in dict_rasters:
             
             for rast in dict_rasters[year]:
+                # we place an exception in case the mask isn't working (box outside the raster)
                 try:
                     # cropping the raster
                     out_img, out_transform = mask(dataset=rast, all_touched=True,
                                                   shapes=our_box, crop=True)
                     
                     # storing the raster in our list
-                    # removing rasters with too much zeros
+                    # removing rasters with too many zeros
                     values = out_img.flatten()
                     nb_zeroes = np.count_nonzero(values == 0)
                     
+                    # if there are two many zeros we don't select the raster
                     if nb_zeroes > len(values)/5 :
                         None
+                    # we regrid the rasters to 128*128 pixels
                     else:
                         resh_rast = regrid(out_img.reshape(out_img.shape[1:]), 128, 128)
                         rasters_box.append(resh_rast)
@@ -562,15 +590,15 @@ def clipping_rasters(dict_rasters, boxes):
                 except:
                     None
         
-        else: 
-            # storing the raster per year
-            i = 0
+
+        # storing the raster per year
+        i = 0
+        
+        for year in dict_rasters:
             
-            for year in dict_rasters:
-                
-                # appending the rasters into a year index
-                rasters_clipped[year].append([rasters_box[i], rasters_box[i+1]])
-                i += 2
+            # appending the rasters into a year index
+            rasters_clipped[year].append([rasters_box[i], rasters_box[i+1]])
+            i += 2
     
     return rasters_clipped
 
@@ -580,14 +608,17 @@ def pca_visualization(code):
     makes a pca visualization (three components) on the code
     """
     
+    # converting into numpy and flattening
+    code = numpy_raster(code).reshape(16,32*32)
     
-    code = code.cpu().detach().numpy().squeeze().reshape(16,1024)
-
+    # performing the PCA
     data_pca = PCA(n_components=3)
     data_pca.fit(code)
     
+    # reshaping for visualisation
     data_pc = data_pca.components_.reshape(3,32,32)
     
+    # visualisation
     show(data_pc[0,:,:])
     show(data_pc[1,:,:])
     show(data_pc[2,:,:])
@@ -633,14 +664,30 @@ def torch_raster(raster):
     float
     """
     
+    # converting the data
     result = torch.from_numpy(raster).cuda().float()
+    
+    return result
+
+def numpy_raster(raster):
+    """
+    function that adapts a raster for the model, change to torch tensor, on cuda,
+    float
+    """
+    
+    # converting the result
+    result = raster.detach().cpu().numpy().squeeze()
     
     return result
 
 
 def prepare_nmi(list_rasters, discrete=False):
+    """
+    Function to prepare the data for the normalized mutual information
+    Arguments are a list of rasters and a boolean in case of discrete (labels) data
+    """
     
-    # llist to store the rasters
+    # list to store the rasters
     reshap_rasts = []
     
     # reshaping and loading in the list
@@ -649,6 +696,7 @@ def prepare_nmi(list_rasters, discrete=False):
         # reshaping
         rast_resh =  regrid(rast.reshape(rast.shape), 32, 32, "nearest")
         
+        # converting again back to integers (reshaping generates floats)
         if discrete:
             rast_resh = np.rint(rast_resh)
         
@@ -730,7 +778,232 @@ def visu_result_model(losses):
 
 
 def reject_outliers(data, m = 3.):
+    """
+    A function that removes outliers above a certain number of standard deviations
+    from the median.
+    """
+    
+    # getting only positive values
     d = np.abs(data - np.median(data))
+    
+    # getting the median
     mdev = np.median(d)
+    
+    # normalizing
     s = d/mdev if mdev else 0.
+    
+    # removing data above a certain number of standard deviations from the median
     return data[s<m]
+
+
+def get_min(matrix, i=1000):
+    """
+    Function to compute the ith value starting from the minimum
+    """
+    
+    # making a vector and sorting the values
+    mat_flat = matrix.copy()
+    mat_flat = mat_flat.flatten()
+    mat_flat = np.sort(mat_flat)
+    
+    # extract the ith value s, starting from the lowest
+    minimum = mat_flat[i]
+    
+    return minimum
+
+
+def set_seed(seed, cuda=True):
+        """ 
+        Sets seeds in all frameworks
+        """
+        
+        # setting the seed for various libraries
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        
+        if cuda: 
+            torch.cuda.manual_seed(seed)  
+            
+            
+def correlation(x, y):
+    """
+    A function to compute the correlation coefficient
+    """
+    
+    # computing the covariance
+    cov = torch.sum((x - x.mean()) * (y - y.mean()))
+    
+    # computing the standard deviations
+    std_x = torch.sqrt(torch.sum((x - torch.mean(x))**2))
+    std_y =  torch.sqrt(torch.sum((y - torch.mean(y))**2))
+    
+    # computing r
+    r = cov / (std_x * std_y)
+    
+    
+    return r
+    
+    
+def arguments_parser(parser):
+    """
+    Loads the arguments of a parser
+    """
+    # Optimization arguments
+    parser.add_argument('--lr', default=0, type=float, help='Initial learning rate')
+    parser.add_argument('--lr_decay', default=0, type=float, help='Multiplicative factor used on learning rate at `lr_steps`')
+    parser.add_argument('--lr_steps', default=0, help='List of epochs where the learning rate is decreased by `lr_decay`')
+    parser.add_argument('--epochs', default=0, type=int, help='Number of epochs to train. If <=0, only testing will be done.')
+    parser.add_argument('--batch_size', default=0, type=int, help='Batch size')
+    parser.add_argument('--optim', default=0, help='Optimizer: sgd|adam')
+    parser.add_argument('--grad_clip', default=0, type=float, help='Element-wise clipping of gradient. If 0, does not clip')
+    
+    # Learning process arguments
+    parser.add_argument('--cuda', default=0, type=int, help='Bool, use cuda')
+    parser.add_argument('--test_nth_epoch', default=0, type=int, help='Test each n-th epoch during training')
+    parser.add_argument('--save_nth_epoch', default=0, type=int, help='Save model each n-th epoch during training')
+
+    # Dataset
+    parser.add_argument('--dataset', default='frejus_dataset', help='Dataset name: frejus_dataset')
+    
+    # Model
+    parser.add_argument('--seed', default=0, type=int, help='Seed for random initialisation')
+    parser.add_argument('--save', default=0, type=int, help='Seed for random initialisation')
+    parser.add_argument('--data_fusion', default=0, help='Including data fusion')
+    parser.add_argument('--adversarial', default=0, help='Making the model adversarial')
+    parser.add_argument('--defiance', default=0, help='Including defiance')
+    parser.add_argument('--split', default=0, help='Making a split on the code')
+    parser.add_argument('--auto_encod', default=0, help='Activating the auto-encoder')
+    
+    # Encoder
+    parser.add_argument('--conv_width', default=0, help='Layers size')
+    
+    # Decoder
+    parser.add_argument('--dconv_width', default=0, help='Layers size')
+    
+    # defiance
+    parser.add_argument('--def_width', default=0, help='Layers size')
+    
+    # Discriminator
+    parser.add_argument('--nb_channels_split', default=0, type=int, help='Number of channels for the input to the discriminator')
+    parser.add_argument('--disc_width', default=0, help='Layers size')
+    parser.add_argument('--nb_trains_discr', default=0, type=int, help='Number of times the discriminator is trained compared to the autoencoder')
+    parser.add_argument('--disc_loss_weight', default=0, type=float, help='Weight applied on the adversarial loss with full model')
+    parser.add_argument('--opti_adversarial_encoder', default=0, help='Trains the encoder weights')
+    
+    return parser
+    
+    
+def load_model(path_model, path_args):
+    
+    ## get the arguments from the model
+    # getting the arguments as a string from the text file
+    file1 = open(path_args, 'r') 
+    args_str = file1.read()
+    file1.close()
+    
+    # creating the parser and the arguments
+    parser = argparse.ArgumentParser()
+    parser = arguments_parser(parser)
+    args = parser.parse_args()
+    
+    # changing the arguments values
+    args = parser.parse_args(namespace=eval(args_str))
+        
+    
+    #initialize the models
+    encoder = mod.Encoder(args.conv_width, args)
+    decoder = mod.Decoder(args.conv_width, args.dconv_width, args)
+    discr = mod.Discriminator(args)
+    trained_model = mod.AdversarialAutoEncoder(encoder, decoder, discr, 0)
+    trained_model.load_state_dict(torch.load(path_model))
+    trained_model.eval()
+    
+    return trained_model, args
+
+
+def prepare_codes_metrics(gt_change, args, trained_model):
+    
+    ## extracting the codes
+    # load list of codes
+    list_codes = []
+    
+    # convert the rasters into codes
+    for year in gt_change:
+        
+        if args.split:
+            list_codes += [trained_model.encoder(torch_raster(rast[None,1:,:,:]), args)[:,:args.nb_channels_split,:,:] for rast in gt_change[year]]
+        else:
+            list_codes += [trained_model.encoder(torch_raster(rast[None,1:,:,:]), args) for rast in gt_change[year]]
+        
+    # convert them back to numpy matrixes
+    np_codes = [rast.detach().cpu().numpy() for rast in list_codes]
+        
+    # stacking into one matrix
+    matrix_codes = np.stack(np_codes, axis=0)
+    matrix_codes = matrix_codes.squeeze()
+    
+    # reshaping
+    if args.split:
+        flat_codes = matrix_codes.transpose(0,2,3,1).reshape((matrix_codes.shape[0]*32*32, args.nb_channels_split))
+    else:
+        flat_codes = matrix_codes.transpose(0,2,3,1).reshape((matrix_codes.shape[0]*32*32, 32))
+        
+    ## extracting the labels
+    # load list of labels
+    list_labels = []
+    
+    # loading the labels
+    for year in gt_change:
+        list_labels += [rast[0,:,:] for rast in gt_change[year]]
+        
+    # transposing into one matrix
+    flat_labels = prepare_nmi(list_labels, discrete=True)
+    
+    ## removing the no data values
+    # getting the nodata matrix
+    data_index = flat_labels != 0
+    
+    # applying the mask
+    labels_clean = flat_labels[data_index]
+    codes_clean = flat_codes[data_index,:]
+    
+    
+    return codes_clean, labels_clean
+
+
+def prepare_data_metrics(gt_change, index_data):
+    
+    
+    ## extracting the altitude
+    # load list of mns
+    list_data = []
+    
+    # loading the mns
+    for year in gt_change:
+        list_data += [rast[index_data,:,:] for rast in gt_change[year]]
+        
+    # reshape to have one single matrix
+    flat_data = prepare_nmi(list_data)
+    
+    ## extracting the labels
+    # load list of labels
+    list_labels = []
+    
+    # loading the labels
+    for year in gt_change:
+        list_labels += [rast[0,:,:] for rast in gt_change[year]]
+        
+    # transposing into one matrix
+    flat_labels = prepare_nmi(list_labels, discrete=True)
+    
+    ## removing the no data values
+    # getting the nodata matrix
+    data_index = flat_labels != 0
+    
+    # applying the mask
+    data_clean = flat_data[data_index]
+    
+    return data_clean
+
+

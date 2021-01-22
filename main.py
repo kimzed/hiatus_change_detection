@@ -9,6 +9,7 @@ import numpy as np
 import argparse
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Subset
+import torch
 
 # for manual visualisation
 from rasterio.plot import show
@@ -17,11 +18,11 @@ from rasterio.plot import show
 os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 
 # importing our functions
+
 import utils as fun
 import train as train
 import evaluate as eval_model
 import metrics as fun_metrics
-import model as mod
 
 def main():
     
@@ -33,7 +34,7 @@ def main():
     parser.add_argument('--lr_decay', default=0.1, type=float, help='Multiplicative factor used on learning rate at `lr_steps`')
     parser.add_argument('--lr_steps', default=[50, 100, 1000, 1500], help='List of epochs where the learning rate is decreased by `lr_decay`')
     parser.add_argument('--epochs', default=1, type=int, help='Number of epochs to train. If <=0, only testing will be done.')
-    parser.add_argument('--batch_size', default=4, type=int, help='Batch size')
+    parser.add_argument('--batch_size', default=64, type=int, help='Batch size')
     parser.add_argument('--optim', default='adam', help='Optimizer: sgd|adam')
     parser.add_argument('--grad_clip', default=0, type=float, help='Element-wise clipping of gradient. If 0, does not clip')
     
@@ -48,11 +49,13 @@ def main():
     # Model
     parser.add_argument('--seed', default=1, type=int, help='Seed for random initialisation')
     parser.add_argument('--save', default=0, type=int, help='Seed for random initialisation')
-    parser.add_argument('--data_fusion', default=0, help='Including data fusion')
-    parser.add_argument('--adversarial', default=0, help='Making the model adversarial')
+    parser.add_argument('--data_fusion', default=1, help='Including data fusion')
+    parser.add_argument('--adversarial', default=1, help='Making the model adversarial')
     parser.add_argument('--defiance', default=0, help='Including defiance')
-    parser.add_argument('--split', default=0, help='Making a split on the code')
+    parser.add_argument('--split', default=1, help='Making a split on the code')
     parser.add_argument('--auto_encod', default=1, help='Activating the auto-encoder')
+    parser.add_argument('--name_model', default="test_transfer_aleo", help='Name of the file to save the model')
+    parser.add_argument('--output_dir', default="evaluation_models", help='Name of the dir to save the model')
     
     # Encoder
     parser.add_argument('--conv_width', default=[8,8,16,16,16], help='Layers size')
@@ -66,7 +69,7 @@ def main():
     # Discriminator
     parser.add_argument('--nb_channels_split', default=8, type=int, help='Number of channels for the input to the discriminator')
     parser.add_argument('--disc_width', default=[32,16,16,16,16,16,16,16,16], help='Layers size')
-    parser.add_argument('--nb_trains_discr', default=1, type=int, help='Number of times the discriminator is trained compared to the autoencoder')
+    parser.add_argument('--nb_trains_discr', default=2, type=int, help='Number of times the discriminator is trained compared to the autoencoder')
     parser.add_argument('--disc_loss_weight', default=0.15, type=float, help='Weight applied on the adversarial loss with full model')
     parser.add_argument('--opti_adversarial_encoder', default=0, help='Trains the encoder weights')
     
@@ -125,7 +128,9 @@ if __name__ == "__other__":
     load_model=False
     
     if load_model == True:
-        trained_model, args = fun.load_model("evaluation_models/AE-MModal+DAN", "evaluation_models/AE-MModal+DAN.txt")
+        dict_model = torch.load("evaluation_models/test_transfer_aleo")
+        
+        trained_model = fun.load_model_from_dict(dict_model)
         
     print(
     """
@@ -277,16 +282,25 @@ if __name__ == "__other__":
     eval_model.evaluate_model("AE-MModal", gt_change)
     eval_model.evaluate_model("AE-MModal+DAN", gt_change)
     
-    
     print("""
        Now we do transfer learning   
     """)
     
-    trained_model, args = fun.load_model("evaluation_models/AE-MModal+DAN", "evaluation_models/AE-MModal+DAN.txt")
-
-    args.epochs = 2
-
-    train.train_full_transfer_learning(args, datasets, gt_change, trained_model)
+    dict_model = torch.load("evaluation_models/test_transfer_aleo")
     
-        
-        
+    dict_model["args"].epochs = 10
+    dict_model["args"].defiance = 1
+    dict_model["args"].save = 0
+    dict_model["args"].load_best_model = 0
+    dict_model["args"].grad_clip = 0
+    
+    # updating the args
+    args = dict_model["args"]
+
+    # starting the run
+    new_model = train.train_full(args, datasets, gt_change, dict_model)
+    
+    # creating a model with encoder, decoder and discriminator
+    trained_model = fun.load_model_from_dict(dict_model)
+    
+    

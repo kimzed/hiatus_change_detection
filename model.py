@@ -168,7 +168,15 @@ class Decoder(nn.Module):
     self.c9 = nn.Sequential(nn.Conv2d(decoder_conv_width[2],decoder_conv_width[3],kernel_size=3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[3]),nn.LeakyReLU(True))
     self.c10 = nn.Sequential(nn.Conv2d(decoder_conv_width[3],decoder_conv_width[4],kernel_size=3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(decoder_conv_width[4]), nn.LeakyReLU(True)) 
     
-   
+    if args.defiance:
+          # extra convs defiance
+          self.c11 = nn.Sequential(nn.Conv2d(args.dconv_width[4],args.def_width[0],kernel_size=1),nn.BatchNorm2d(args.def_width[0]), nn.LeakyReLU(True)) 
+          self.c12 = nn.Sequential(nn.Conv2d(args.def_width[0],args.def_width[1],kernel_size=1),nn.BatchNorm2d(args.def_width[1]), nn.LeakyReLU(True)) 
+          self.c13 = nn.Sequential(nn.Conv2d(args.def_width[1],args.def_width[2],kernel_size=1),nn.BatchNorm2d(args.def_width[2]), nn.LeakyReLU(True)) 
+          self.c14 = nn.Sequential(nn.Conv2d(args.def_width[2],args.def_width[3],kernel_size=1),nn.BatchNorm2d(args.def_width[3]), nn.LeakyReLU(True)) 
+          self.c15 = nn.Sequential(nn.Conv2d(args.def_width[3],args.def_width[4],kernel_size=1),nn.BatchNorm2d(args.def_width[4]), nn.LeakyReLU(True)) 
+          self.defi = nn.Conv2d(16, 1, 1, padding=0)  
+          
     # aleotoric part
     self.final = nn.Conv2d(decoder_conv_width[4], 2, 1, padding=0)
     
@@ -205,34 +213,21 @@ class Decoder(nn.Module):
 #       layer.weight.data.fill_(0.001) 
 #       
 # =============================================================================
-    
-    
-  def init_defiance(self, layer):
-    # =============================================================================
-    #       layer.weight.data.normal_(0, 0.001)
-    #       layer.bias.data.fill_(0) 
-    # =============================================================================
-      layer.weight.data.normal_(0, 0.001)
-      layer.bias.data.fill_(0) 
           
   def init_zeros(self, layer):
       torch.ones()
     
-  def add_aleotoric(self):
-      # extra convs defiance
-      self.c11 = nn.Sequential(nn.Conv2d(args.dconv_width[4],args.def_width[0],kernel_size=1),nn.BatchNorm2d(args.def_width[0]), nn.LeakyReLU(True)) 
-      self.c12 = nn.Sequential(nn.Conv2d(args.def_width[0],args.def_width[1],kernel_size=1),nn.BatchNorm2d(args.def_width[1]), nn.LeakyReLU(True)) 
-      self.c13 = nn.Sequential(nn.Conv2d(args.def_width[1],args.def_width[2],kernel_size=1),nn.BatchNorm2d(args.def_width[2]), nn.LeakyReLU(True)) 
-      self.c14 = nn.Sequential(nn.Conv2d(args.def_width[2],args.def_width[3],kernel_size=1),nn.BatchNorm2d(args.def_width[3]), nn.LeakyReLU(True)) 
-      self.c15 = nn.Sequential(nn.Conv2d(args.def_width[3],args.def_width[4],kernel_size=1),nn.BatchNorm2d(args.def_width[4]), nn.LeakyReLU(True)) 
-      self.defi = nn.Conv2d(16, 1, 1, padding=0)
+  
         
     
       # initializing weights
       self.c11[0].apply(self.init_defiance)
       self.c12[0].apply(self.init_defiance)
       self.c13[0].apply(self.init_defiance)
+      self.c14[0].apply(self.init_defiance)
+      self.c15[0].apply(self.init_defiance)
       self.defi.apply(self.init_defiance)
+      
       
   def forward(self,input, args):
     """
@@ -261,10 +256,12 @@ class Decoder(nn.Module):
     
     if args.defiance:
         # including defiance
-        defiance_rad = self.sfplus(out[:,2,:,:][:,None,:,:])
+        
+        defiance_rad = self.c15(self.c14(self.c13(self.c12(self.c11(y1)))))
+        defiance_rad = self.sfplus(defiance_rad)
         out = torch.cat((out[:,0:2,:,:], defiance_rad), 1)
         
-    return out, y1
+    return out
 
 
 class Discriminator(nn.Module):

@@ -11,6 +11,7 @@ from sklearn import metrics
 import datetime
 from torch.utils.tensorboard import SummaryWriter
 import os
+import torch.optim as optim
 
 # importing our functions
 import loss as loss_fun
@@ -62,7 +63,7 @@ def train(model, args, datasets):
     # ============forward auto-encoder===========
     
     # compute the prediction
-    pred, input_aleo = model.predict(tiles_noise, args)
+    pred = model.predict(tiles_noise, args)
     code = model.encoder(tiles_noise, args)
     
     # boolean matrixes to remove effect of no data
@@ -196,8 +197,6 @@ def train(model, args, datasets):
         
         # ============backward===========
         
-        if args.defiance:
-            model.opti_Aleo.zero_grad()
             
         model.opti_AE.zero_grad()
         loss.backward()
@@ -225,7 +224,7 @@ def train(model, args, datasets):
   return result
 
 
-def train_full(args, datasets, gt_change):
+def train_full(args, datasets, gt_change, dict_model=None):
   """
   The full training loop
   """
@@ -238,19 +237,25 @@ def train_full(args, datasets, gt_change):
   ## working with tensorboard
   writer = SummaryWriter('runs/'+now)
   
-  #initialize the models
-  encoder = mod.Encoder(args.conv_width, args)
-  decoder = mod.Decoder(args.conv_width, args.dconv_width, args)
-  discr = mod.Discriminator(args)
-
-  # total number of parameters
-  print('Total number of encoder parameters: {}'.format(sum([p.numel() for p in encoder.parameters()])))
-  print('Total number of decoder parameters: {}'.format(sum([p.numel() for p in decoder.parameters()])))
-  print('Total number of discriminator parameters: {}'.format(sum([p.numel() for p in discr.parameters()])))
-  
-  # creating a model with encoder, decoder and discriminator
-  model = mod.AdversarialAutoEncoder(encoder, decoder, discr, args.lr)
-  print(model)
+  # loading a previous model as an option
+  if dict_model:
+      # creating a model with encoder, decoder and discriminator
+      model = fun.load_model_from_dict(dict_model)
+      print(model)
+  else:
+      #initialize the models
+      encoder = mod.Encoder(args.conv_width, args)
+      decoder = mod.Decoder(args.conv_width, args.dconv_width, args)
+      discr = mod.Discriminator(args)
+    
+      # total number of parameters
+      print('Total number of encoder parameters: {}'.format(sum([p.numel() for p in encoder.parameters()])))
+      print('Total number of decoder parameters: {}'.format(sum([p.numel() for p in decoder.parameters()])))
+      print('Total number of discriminator parameters: {}'.format(sum([p.numel() for p in discr.parameters()])))
+      
+      # creating a model with encoder, decoder and discriminator
+      model = mod.AdversarialAutoEncoder(encoder, decoder, discr, args.lr)
+      print(model)
   
   # objects to update the learning rate
   scheduler_D = MultiStepLR(model.opti_D, milestones=args.lr_steps, gamma=args.lr_decay)
@@ -340,13 +345,11 @@ def train_full(args, datasets, gt_change):
       i_best_model = losses["auc"].index(max(losses["auc"]))
       name_model = "evaluation_models/save_model_epoch_" + str(i_best_model)
       name_args = "evaluation_models/save_model_epoch_" + str(i_best_model) + ".txt"
-      model, _ = fun.load_model(name_model, name_args)
+      model, args = fun.load_model(name_model, name_args)
       
       if args.save:
           # save the model
-          torch.save(model.state_dict(), "evaluation_models/"+"AE-MModal+DAN")#+now)
-          # renaming the args file
-          os.rename(name_args, "evaluation_models/AE-MModal+DAN.txt")
+          torch.save({'epoch': i_epoch + 1, 'args': args, 'state_dict': model.state_dict()}, os.path.join(args.output_dir+args.name_model))
           
           ## deleting the epochs saves
           # getting the list of files and adding the directory
@@ -365,12 +368,8 @@ def train_full(args, datasets, gt_change):
   # save the model
   elif args.save:
       
-      # save the module
-      torch.save(model.state_dict(), "models/"+now)#+now)
-      # save a text file with the parameters of the module
-      f = open("models/"+now+".txt", "w")
-      f.write(str(args))
-      f.close()
+      # save the model
+      torch.save({'epoch': i_epoch + 1, 'args': args, 'state_dict': model.state_dict()}, os.path.join(args.output_dir+args.name_model))
       
   # visualize losses from the model
   fun.visu_result_model(losses)
@@ -385,149 +384,3 @@ def train_full(args, datasets, gt_change):
   return model
 
 
-def train_full_transfer_learning(args, datasets, gt_change, model):
-  """
-  The full training loop
-  """
-  
-  # get the time of the run to save the model
-  now = datetime.datetime.now()
-  now = now.strftime("%Y-%m-%d %H:%M")
-  now = str(now)
-  
-  ## working with tensorboard
-  writer = SummaryWriter('runs/'+now)
-  
-  # objects to update the learning rate
-  scheduler_D = MultiStepLR(model.opti_D, milestones=args.lr_steps, gamma=args.lr_decay)
-  scheduler_AE = MultiStepLR(model.opti_AE, milestones=args.lr_steps, gamma=args.lr_decay)
-  
-  model.decoder.add_aleotoric()
-  
-  # storing losses to display them eventually
-  losses = {"tot":[], "mns":[], "alt":[], "accu":[], "auc":[]}
-  
-  for i_epoch in range(args.epochs):
-      
-    #train one epoch
-    loss_train, nb_batches, loss_alt, loss_rad, loss_disc, accu_discr = train(model,
-                                                                              args,
-                                                                              datasets)
-    
-        
-    if args.test_auc:
-        ## checking the auc
-        model.encoder.eval()
-        
-        ## evaluating the model
-        pred, y, classes = eval_model.generate_prediction_model(gt_change, model, args)
-        
-        # computing the auc
-        auc = metrics.roc_auc_score(y, pred)
-    else:
-        auc=0
-    
-    
-    # updating the learning rate
-    scheduler_D.step()
-    scheduler_AE.step()
-    
-    # storing loss for later plotting
-    losses["tot"].append(loss_train)
-    losses["mns"].append(loss_alt)
-    losses["alt"].append(loss_rad)
-    losses["accu"].append(accu_discr)
-    losses["auc"].append(auc)
-    
-    print('Epoch %3d -> Train Loss: %1.4f' % (i_epoch, loss_train))
-    print("loss mns is %1.4f" % (loss_alt))
-    print("loss rad is %1.4f" % (loss_rad))
-    print("loss discr is %1.4f" % (loss_disc))
-    print("accu discr is %1.4f" % (accu_discr))
-    print("auc is %1.4f" % (auc))
-    print("\n")
-    
-    
-    ## we save each epoch
-    # save the model
-    if args.load_best_model:
-          
-        # save the module
-        torch.save(model.state_dict(), "evaluation_models/"+"save_model_epoch_"+str(i_epoch))#+now)
-        
-        # save a text file with the parameters of the module
-        f = open("evaluation_models/"+"save_model_epoch_"+str(i_epoch)+".txt", "w")
-        f.write(str(args))
-        f.close()
-    
-    # saving the running loss
-    writer.add_scalar('training loss',
-                    loss_train,
-                    i_epoch)
-    
-    writer.add_scalar('altitude loss',
-                    loss_alt,
-                    i_epoch)
-    
-    writer.add_scalar('radiometric loss',
-                    loss_rad,
-                    i_epoch)
-    
-    writer.add_scalar('discriminator loss',
-                    loss_disc,
-                    i_epoch)
-    
-    writer.add_scalar('accuracy discriminator',
-                    accu_discr,
-                    i_epoch)
-  
-  # save the best model
-  if args.load_best_model:
-      
-      # loading the best model
-      i_best_model = losses["auc"].index(max(losses["auc"]))
-      name_model = "evaluation_models/save_model_epoch_" + str(i_best_model)
-      name_args = "evaluation_models/save_model_epoch_" + str(i_best_model) + ".txt"
-      model, _ = fun.load_model(name_model, name_args)
-      
-      if args.save:
-          # save the model
-          torch.save(model.state_dict(), "evaluation_models/"+"AE-MModal+DAN")#+now)
-          # renaming the args file
-          os.rename(name_args, "evaluation_models/AE-MModal+DAN.txt")
-          
-          ## deleting the epochs saves
-          # getting the list of files and adding the directory
-          list_files = os.listdir("evaluation_models/")
-          list_files = ["evaluation_models/"+file for file in list_files]
-          # removing the files
-          [os.remove(file) for file in list_files if "save_model_epoch_" in file]
-      else:
-          ## deleting the epochs saves
-          # getting the list of files and adding the directory
-          list_files = os.listdir("evaluation_models/")
-          list_files = ["evaluation_models/"+file for file in list_files]
-          # removing the files
-          [os.remove(file) for file in list_files if "save_model_epoch_" in file]
-          
-  # save the model
-  elif args.save:
-      
-      # save the module
-      torch.save(model.state_dict(), "models/"+now)#+now)
-      # save a text file with the parameters of the module
-      f = open("models/"+now+".txt", "w")
-      f.write(str(args))
-      f.close()
-      
-  # visualize losses from the model
-  fun.visu_result_model(losses)
-  
-  # getting into eval() mode
-  model.encoder.eval()
-  model.decoder.eval()
-  model.discr.eval()
-  
-  
-  
-  return model

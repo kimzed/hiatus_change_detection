@@ -13,21 +13,23 @@ class AdversarialAutoEncoder(nn.Module):
   EncoderDecoder network for semantic segmentation
   """
   
-  def __init__(self, encoder, decoder, discr, learning_rate):
+  def __init__(self, encoder, decoder, discr=0, learning_rate=0.01):
       
       super(AdversarialAutoEncoder, self).__init__()
       
       # saving the two models in the object
       self.encoder = encoder
       self.decoder = decoder
-      self.discr = discr
+      if discr:
+          self.discr = discr
       
       # combining parameters
       self.AE_params = list(self.encoder.parameters()) + list(self.decoder.parameters())
       
       # saving the optimizers in the object
       self.opti_AE =  optim.Adam(self.AE_params, learning_rate, weight_decay=0)
-      self.opti_D =  optim.Adam(self.discr.parameters(), 0.002, weight_decay=1e-5)
+      if discr:
+          self.opti_D =  optim.Adam(self.discr.parameters(), 0.002, weight_decay=1e-5)
       
   def predict(self, input, args):
       
@@ -102,7 +104,6 @@ class Encoder(nn.Module):
     after the model is created as an object 
     we call the method with the input as an argument
     """
-    
     # load altitude and reshape it
     alt = input[:,0,:,:][:,None,:,:]
     
@@ -111,30 +112,36 @@ class Encoder(nn.Module):
     
     #encoder altitude
     #level 1
-    a1 = self.sc2_mns(self.c1_mns(alt))
-    
+    if args.rad_input:
+        a1 = self.sc2_mns(self.c1_mns(alt))
+    else:
+        a1 = self.sc2_mns(self.c1_mns(rad))
+        
     #level 2
     a2= self.sc4_mns(self.c3_mns(a1))
     
     #encoder visual
     #level 1
-    x1 = self.sc2_rad(self.c1_rad(rad))
+    if args.rad_input:
+        x1 = self.sc2_rad(self.c1_rad(rad))
+    else:
+        x1 = self.sc2_rad(self.c1_rad(alt))
     
     if args.data_fusion:
         #level 2
         x2= self.sc4(self.c3(x1 + a1))
         
         #level 3
-        x4 = self.c5(x2 + a2)
+        x3 = self.c5(x2 + a2)
         
     else:
         #level 2
         x2= self.sc4(self.c3(x1))
         
         #level 3
-        x4 = self.c5(x2)
+        x3 = self.c5(x2)
         
-    return x4
+    return x3
 
 
 class Decoder(nn.Module):
@@ -156,7 +163,6 @@ class Decoder(nn.Module):
     
     # converting values inside the model into floats
     self = self.float()
-    self.sfplus =  torch.nn.Softplus()
 
     #decoder
     # the extra width is added because of concatenation ?
@@ -183,12 +189,21 @@ class Decoder(nn.Module):
     # initializing weights
     self.c6[0].apply(self.init_weights)
     self.t1[0].apply(self.init_weights)
+    self.t2[0].apply(self.init_weights)
     self.c7[0].apply(self.init_weights)
     self.c8[0].apply(self.init_weights)
-    self.t2[0].apply(self.init_weights)
     self.c9[0].apply(self.init_weights)
     self.c10[0].apply(self.init_weights)
     self.final.apply(self.init_weights)
+    
+    if args.defiance:
+        # initializing weights
+        self.c11[0].apply(self.init_defiance)
+        self.c12[0].apply(self.init_defiance)
+        self.c13[0].apply(self.init_defiance)
+        self.c14[0].apply(self.init_defiance)
+        self.c15[0].apply(self.init_defiance)
+        self.defi.apply(self.init_defiance_final)
     
 # =============================================================================
 #     self.final.weight.data.fill_(1)
@@ -207,26 +222,17 @@ class Decoder(nn.Module):
 #       layer.weight.data.normal_(0, 0.001)
 #       layer.bias.data.fill_(0) 
 # =============================================================================
-      layer.weight.data.normal_(0, 0.001)
+      layer.weight.data.normal_(0, 0.000001)
       layer.bias.data.fill_(0) 
 # =============================================================================
 #       layer.weight.data.fill_(0.001) 
 #       
 # =============================================================================
           
-  def init_zeros(self, layer):
-      torch.ones()
-    
-  
-        
-    
-      # initializing weights
-      self.c11[0].apply(self.init_defiance)
-      self.c12[0].apply(self.init_defiance)
-      self.c13[0].apply(self.init_defiance)
-      self.c14[0].apply(self.init_defiance)
-      self.c15[0].apply(self.init_defiance)
-      self.defi.apply(self.init_defiance)
+  def init_defiance_final(self, layer):
+      layer.weight.data.normal_(0, 0.000001)
+      layer.bias.data.fill_(torch.tensor(0.5413)) 
+      
       
       
   def forward(self,input, args):
@@ -238,12 +244,18 @@ class Decoder(nn.Module):
 
     #decoder
     #level 2
-    y4 = self.t1(self.c6(input))
+    y4 = nn.Upsample(scale_factor=2, mode='bilinear')(self.c6(input))
+# =============================================================================
+#     y4 = self.t1(self.c6(input))
+# =============================================================================
     y3 = self.c8(self.c7(y4))
     
     #level 1       
-    y2 = self.t2(y3)
-    y1 = self.c10(self.c9(y2))
+# =============================================================================
+#     y2 = self.c9(self.t2(y3))
+# =============================================================================
+    y2 = self.c9(nn.Upsample(scale_factor=2, mode='bilinear')(y3))
+    y1 = self.c10(y2)
     
     out = self.final(y1)
     
@@ -251,15 +263,18 @@ class Decoder(nn.Module):
         # adding a matrix of zeros for mns
         none_mat = torch.zeros(out.shape[0], 1, out.shape[2], out.shape[3])
         none_mat = none_mat.cuda()
-        out[:,0,:,:][:,None,:,:] = none_mat
         
+        if args.rad_input:
+            out[:,0,:,:][:,None,:,:] = none_mat
+        else:
+            out[:,1,:,:][:,None,:,:] = none_mat
     
     if args.defiance:
         # including defiance
         
         defiance_rad = self.c15(self.c14(self.c13(self.c12(self.c11(y1)))))
-        defiance_rad = self.sfplus(defiance_rad)
-        out = torch.cat((out[:,0:2,:,:], defiance_rad), 1)
+        aleo_final = torch.nn.Softplus()(self.defi(defiance_rad))
+        out = torch.cat((out[:,0:2,:,:], aleo_final), 1)
         
     return out
 
@@ -291,7 +306,7 @@ class Discriminator(nn.Module):
     if args.split:
         self.sc1 = nn.Sequential(nn.Conv2d(args.nb_channels_split, args.disc_width[1], 4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
     else:
-        self.sc1 = nn.Sequential(nn.Conv2d(args.disc_width[0], args.disc_width[1], 4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
+        self.sc1 = nn.Sequential(nn.Conv2d(args.conv_width[-1], args.disc_width[1], 4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
     self.c1 = nn.Sequential(nn.Conv2d(args.disc_width[1], args.disc_width[2], 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
     self.sc2 = nn.Sequential(nn.Conv2d(args.disc_width[2], args.disc_width[3], 4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
     self.c2 = nn.Sequential(nn.Conv2d(args.disc_width[3], args.disc_width[4], 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))

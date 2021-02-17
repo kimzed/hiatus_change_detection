@@ -1,5 +1,5 @@
 # Project hiatus
-# script to evaluate our model
+# script to evaluate our model and generate predictions
 # 26/11/2020
 # Cédric BARON
 
@@ -9,7 +9,10 @@ import numpy as np
 
 from argparse import Namespace
 import argparse
+from sklearn.model_selection import train_test_split
+from torch.utils.data import Subset
 import torch
+import os
 
 # importing our functions
 import utils as fun
@@ -63,7 +66,7 @@ def generate_prediction_model(list_rast_gt, model, args):
                     dccode = dccode.detach().cpu().numpy()
                     
                     # reshaping to original dimensions
-                    pred_map = fun.regrid(dccode.reshape(dccode.shape[1:]), 128, 128, "nearest")
+                    pred_map = fun.regrid(dccode.reshape(dccode.shape[1:]), 128, 128, "linear")
                     
                     # removing no data
                     cmap_pred = pred_map.squeeze()[data_index]
@@ -138,27 +141,10 @@ def evaluate_model(model, gt_change):
     """
     
     ## get the arguments from the model
-    # getting the arguments as a string from the text file
-    file1 = open('evaluation_models/'+model+'.txt', 'r') 
-    args_str = file1.read()
-    file1.close()
-    
-    # creating the parser and the arguments
-    parser = argparse.ArgumentParser()
-    parser = fun.arguments_parser(parser)
-    args = parser.parse_args()
-    
-    # changing the arguments values
-    args = parser.parse_args(namespace=eval(args_str))
+    dict_model = torch.load("evaluation_models/"+model)
+    args = dict_model["args"]
         
-    
-    #initialize the models
-    encoder = mod.Encoder(args.conv_width, args)
-    decoder = mod.Decoder(args.conv_width, args.dconv_width, args)
-    discr = mod.Discriminator(args)
-    trained_model = mod.AdversarialAutoEncoder(encoder, decoder, discr, 0)
-    trained_model.load_state_dict(torch.load("evaluation_models/"+model))
-    trained_model.eval()
+    trained_model = fun.load_model_from_dict(dict_model)
     
     print(
     """
@@ -173,7 +159,10 @@ def evaluate_model(model, gt_change):
     
     # ROC
     print("AUC model")
-    fun_metrics.visualize_roc(y, pred, return_thresh=False)
+    threshold=fun_metrics.visualize_roc(y, pred, return_thresh=True)
+    
+    # outputting the accuracy and IoU
+    fun_metrics.iuc_accuracy(pred, threshold, y, classes)
     
     print(
     """
@@ -201,9 +190,9 @@ def evaluate_model(model, gt_change):
     
     # reshaping
     if args.split:
-        flat_codes = matrix_codes.transpose(0,2,3,1).reshape((matrix_codes.shape[0]*32*32, 4))
+        flat_codes = matrix_codes.transpose(0,2,3,1).reshape((matrix_codes.shape[0]*32*32, args.nb_channels_split))
     else:
-        flat_codes = matrix_codes.transpose(0,2,3,1).reshape((matrix_codes.shape[0]*32*32, 32))
+        flat_codes = matrix_codes.transpose(0,2,3,1).reshape((matrix_codes.shape[0]*32*32, matrix_codes.shape[1]))
     
     ## extracting the labels
     # load list of labels
@@ -242,7 +231,7 @@ def evaluate_model(model, gt_change):
     # calculating the NMI for the codes
     mi_score = fun_metrics.NMI_continuous_discrete(labels_clean, codes_clean,
                                         nb_classes, [1,2,3], classes_idx)
-    print("NMI score for the model is %1.2f" % (mi_score))
+    print("NMI score for the model is %1.4f" % (mi_score))
     
     
     print(
@@ -250,14 +239,104 @@ def evaluate_model(model, gt_change):
     Making a linear SVM
     """)
     
-    ## linear svm with the model
-    conf_mat_model, class_report_model, scores_cv = fun_metrics.svm_accuracy_estimation(codes_clean,
-                                                                             labels_clean)
+    ### Linear svm but distinct geographical locations
+    # getting ids for training and validation sets
+    train_idx, val_idx = train_test_split(list(range(len(gt_change["1954"]))), test_size=0.25)
+
     
+    gt_change_train = {}
+    gt_change_test = {}
+    
+    for year in gt_change:
+        gt_change_train[year] = Subset(gt_change[year], train_idx)
+        gt_change_test[year] = Subset(gt_change[year], val_idx)
+    
+    # data for train
+    codes_train, labels_train = fun.prepare_codes_metrics(gt_change_train, args, trained_model)
+    
+    # data for test
+    codes_test, labels_test = fun.prepare_codes_metrics(gt_change_test, args, trained_model)
+    
+    ## linear svm with the model
+    conf_mat_model, class_report_model, scores_cv_model = fun_metrics.svm_accuracy_estimation_2(codes_train, codes_test, labels_train, labels_test, cv=True)
+
     print("Results for the model")
     print("/n")
     print(class_report_model)
     
-   
+    print("k-fold fscore")
+    print("/n")
+    print("F-score for the model k-fold is %1.4f" % (np.mean(scores_cv_model)))
+    
     
     return None
+
+
+
+
+def generate_prediction_baseline_model(list_rast_gt, args):
+    """
+    Function to generate the change raster from the model
+    args: the ground truth rasters as a dictionary (per year), with mns, rad and
+          labels ; the model and its arguments (parameters of the model)
+    outputs the codes, the binary change maps (gt) and the classes
+          
+    """
+    
+    # loading lists to store the results
+    y = []
+    pred = []
+    classes = []
+    
+    # loading the list of models
+    list_models = os.listdir("evaluation_models")
+    
+    # getting th year for the first rasters
+    for year1 in list_rast_gt:
+        
+        # getting the year for the second raster
+        for year2 in list_rast_gt:
+            
+            # checking that both year are not the same
+            if year1 != year2 and year2 > year1:
+                ## loading the two models
+                # looping through the models
+                for model in list_models:
+                    # getting the one corresponding to the years
+                    if year1 in model and year2 in model:
+                        # forward model
+                        if model[-1] == "1":
+                            dict_model1 = torch.load("evaluation_models/" + model)
+                            model1 = fun.load_model_from_dict(dict_model1)
+                        # backward model
+                        else:
+                            dict_model2 = torch.load("evaluation_models/"+ model)
+                            model2 = fun.load_model_from_dict(dict_model2)
+                    
+                
+                
+                for ind in range(len(list_rast_gt[year2])):
+                    
+                    # loading the two rasters
+                    rast1 = list_rast_gt[year1][ind]
+                    rast2 = list_rast_gt[year2][ind]
+                    
+                    # loading the gt change map and the mask for no data
+                    cmap_gt, data_index, pixel_class = fun.binary_map_gt(rast1, rast2)
+                    
+                    # loading the rasters
+                    rast1 = rast1[1:,:,:][None,:,:,:]
+                    rast2 = rast2[1:,:,:][None,:,:,:]
+                    
+                    # computing change raster
+                    cmap = fun.CD_baseline(rast1, rast2, model1, model2, args)
+                    
+                    
+                    # removing no data
+                    cmap_pred = cmap.squeeze()[data_index]
+                    
+                    # storing the results and corresponding classes
+                    pred += list(cmap_pred)
+                    classes += list(pixel_class)
+                    y += list(cmap_gt)
+    return pred, y, classes

@@ -19,9 +19,7 @@ def get_datasets(years):
     """
     
     # loading the files
-    our_dir = "data/np_data/"
-    list_files = os.listdir(our_dir)
-    list_files = [our_dir+file for file in list_files]
+    list_files = fun.get_files("data/np_data")
     
     # sorting the names to have similar order
     list_files.sort(reverse=True)
@@ -31,8 +29,8 @@ def get_datasets(years):
     for year in years:
         data[year] = []
     
-    # loading the list for the ground truth
-    gt_year = []
+    # loading the list for the year vector
+    year_vect = []
     
     # loading the rasters
     for year in data:
@@ -40,21 +38,19 @@ def get_datasets(years):
             if file[13:17] == year in file and "gt" not in file:
                 data[year].append(load(file))
                 
-    # loading the ground truth (corresponding dates)
+    # loading the dates vectors
     for year in data:
         for file in list_files:
             if file[13:17] == year in file and "gt" in file:
-                gt_year += [load(file)]
+                year_vect += [load(file)]
     
     # dict to store our GT rasters (change and classes)
     gt_change ={}
     for year in years:
         gt_change[year] = []
     
-    # getting the list of the files
-    our_dir = "data/GT_np/"
-    list_files_gt = os.listdir(our_dir)
-    list_files_gt = [our_dir+file for file in list_files_gt]
+    # getting the list of files
+    list_files_gt = fun.get_files("data/GT_np")
     list_files_gt.sort()
     
     # loading the matrixes in the dict per year
@@ -73,11 +69,10 @@ def get_datasets(years):
     data_list = []
     
     for year in data:
-        
         data_list += data[year]
     
     # loading the torch data without batch
-    datasets = fun.train_val_dataset(data_list, gt_year)
+    datasets = fun.train_val_dataset(data_list, year_vect)
     
     # extracting evals, converting into pytorch tensors
     datasets["val"] = [torch.from_numpy(obs) for obs in datasets["val"]]
@@ -98,6 +93,5 @@ def get_datasets(years):
     for i in range(len(datasets["train"])):
        train_data.append([datasets["train"][i], datasets["gt_train"][i]])
        
-    
     return train_data, gt_change, data
     

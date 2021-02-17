@@ -58,8 +58,9 @@ def visualize_roc(y, pred, return_thresh = False):
     ## making the ROC curve
     fpr, tpr, thresholds = metrics.roc_curve(y, pred)
     auc = metrics.roc_auc_score(y, pred)
+    print(auc)
      # calculating the optimal threshold
-    gmeans = np.sqrt(tpr * (1-fpr))
+    gmeans = tpr - fpr
     idx = np.argmax(gmeans)
     optimal_threshold = thresholds[idx]
     
@@ -77,7 +78,7 @@ def visualize_roc(y, pred, return_thresh = False):
     result = None
     
     if return_thresh:
-        result = thresholds
+        result = optimal_threshold
     
     return result
 
@@ -162,7 +163,7 @@ def NMI_continuous_discrete(labels_discrete, data_continuous, nb_classes, labels
     MI = 0
     
     # number of neighbours (actually k-1)
-    k = 5
+    k = 4
     
     for i in range(len(labels)):
         
@@ -185,10 +186,10 @@ def NMI_continuous_discrete(labels_discrete, data_continuous, nb_classes, labels
         tree_class = KDTree(data_class)
         
         # looping through our data
-        for i in range(len(labels_discrete)):
+        for i, label_disc in enumerate(labels_discrete):
             
             # checking if the sample has the correct class
-            if labels_discrete[i] == label_class:
+            if label_disc == label_class:
                 
                 # getting the distance for the nearest neighbours
                 dist, ind = tree_class.query(data_class[idx_class][None,:], k=k)
@@ -213,6 +214,10 @@ def NMI_continuous_discrete(labels_discrete, data_continuous, nb_classes, labels
 
 
 def svm_accuracy_estimation(data, labels, cv=False):
+    """
+    performance on a svm
+    This function builds the datasets up
+    """
     
     ## linear svm with the mns
     # loading the data
@@ -264,7 +269,10 @@ def svm_accuracy_estimation(data, labels, cv=False):
 
 
 def svm_accuracy_estimation_2(data_train, data_test, labels_train, labels_test, cv=False):
-    
+    """
+    performance on a SVM
+    this function work with already made datasets
+    """
     ## linear svm with the mns
     # loading the data
     tensor_train = torch.tensor(data_train)
@@ -309,3 +317,15 @@ def svm_accuracy_estimation_2(data_train, data_test, labels_train, labels_test, 
     
     return conf_mat, class_report, scores_cv
 
+
+def iou_accuracy(pred, threshold, y, classes):
+    """
+    Function to compute the 
+    """
+    # converting to binary
+    binary_vec = fun.convert_binary(pred, threshold)
+    
+    # visualizing the confusion matrix
+    confusion_matrix_visualize(binary_vec, y, threshold)
+    
+    return None

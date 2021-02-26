@@ -22,7 +22,7 @@ import metrics as fun_metrics
 def generate_prediction_model(list_rast_gt, model, args):
     """
     Function to generate the change raster from the model
-    args: the ground truth rasters as a dictionary (per year), with mns, rad and
+    args: the ground truth rasters as a dictionary (per year), with dem, rad and
           labels ; the model and its arguments (parameters of the model)
     outputs the codes, the binary change maps (gt) and the classes
           
@@ -83,7 +83,7 @@ def generate_prediction_model(list_rast_gt, model, args):
 def generate_prediction_baseline(list_rast_gt):
     """
     Function to output the change map for the baseline
-    outputs the float change map (baseline) for the mns, the radiometry and the
+    outputs the float change map (baseline) for the dem, the radiometry and the
     binary map (ground truth)
     """
     
@@ -162,7 +162,7 @@ def evaluate_model(model, gt_change):
     threshold=fun_metrics.visualize_roc(y, pred, return_thresh=True)
     
     # outputting the accuracy and IoU
-    fun_metrics.iuc_accuracy(pred, threshold, y, classes)
+    fun_metrics.iou_accuracy(pred, threshold, y, classes)
     
     print(
     """
@@ -261,11 +261,11 @@ def evaluate_model(model, gt_change):
     conf_mat_model, class_report_model, scores_cv_model = fun_metrics.svm_accuracy_estimation_2(codes_train, codes_test, labels_train, labels_test, cv=True)
 
     print("Results for the model")
-    print("/n")
+    print("\n")
     print(class_report_model)
     
     print("k-fold fscore")
-    print("/n")
+    print("\n")
     print("F-score for the model k-fold is %1.4f" % (np.mean(scores_cv_model)))
     
     

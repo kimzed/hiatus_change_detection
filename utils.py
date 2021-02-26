@@ -70,11 +70,11 @@ def nn_interpolate(A, new_size):
     row_repeats = np.array(list(Counter(new_row_positions).values()))
     col_repeats = np.array(list(Counter(new_col_positions).values()))
     
-    # perform column-wise interpolation on the columns of the matrix
+    # perform column-wise interpolation on the coludem of the matrix
     row_matrix = np.dstack([np.repeat(A[:, i], row_repeats) 
                             for i in range(old_size[1])])[0]
     
-    # perform column-wise interpolation on the columns of the matrix
+    # perform column-wise interpolation on the coludem of the matrix
     nrow, ncol = row_matrix.shape
     final_matrix = np.stack([np.repeat(row_matrix[i, :], col_repeats)
                              for i in range(nrow)])
@@ -105,7 +105,7 @@ def convert_binary(values, thresh):
 
 def regrid(data, out_x, out_y, interp_method="linear"):
     """
-    param: numpy array, number of columns, number of rows
+    param: numpy array, number of coludem, number of rows
     fun: function to interpolate a raster
     
     """
@@ -136,25 +136,25 @@ for i in range(127):
 
 def visualize(raster, third_dim=True, defiance=False):
     """
-    param: a raster 2*128*128, with mns and radiometry
+    param: a raster 2*128*128, with dem and radiometry
     fun: visualize a given raster in two dimensions and in 3d for altitude
     """
     
     # in case of Bayesian model
     if defiance:
         # creating axes and figures
-        fig, ((mns, col), (defi, _)) = plt.subplots(2, 2, figsize=(14, 14)) # Create one plot with figure size 10 by 10
+        fig, ((dem, col), (defi, _)) = plt.subplots(2, 2, figsize=(14, 14)) # Create one plot with figure size 10 by 10
         
         # setting the title
-        mns.set_title("DEM")
+        dem.set_title("DEM")
         col.set_title("color")
         defi.set_title("aleotoric error")
-        mns.axis("off")
+        dem.axis("off")
         col.axis("off")
         defi.axis("off")
         
         # showing the data
-        mns = mns.imshow(raster[0,:,:], vmin=-1.5, vmax=3)
+        dem = dem.imshow(raster[0,:,:], vmin=-1.5, vmax=3)
         col = col.imshow(raster[1,:,:], cmap="gray")
         defi = defi.imshow(raster[2,:,:], cmap="hot")#, vmin=0, vmax=2)
         plt.axis("off")
@@ -162,16 +162,16 @@ def visualize(raster, third_dim=True, defiance=False):
     
     else:
         # creating axes and figures
-        fig, (mns, col) = plt.subplots(1, 2, figsize=(14, 14)) # Create one plot with figure size 10 by 10
+        fig, (dem, col) = plt.subplots(1, 2, figsize=(14, 14)) # Create one plot with figure size 10 by 10
         
         # setting the title
-        mns.set_title("DEM")
+        dem.set_title("DEM")
         col.set_title("color")
-        mns.axis("off")
+        dem.axis("off")
         col.axis("off")
         
         # showing the data
-        mns = mns.imshow(raster[0,:,:])#, vmin=-1.5, vmax=3)
+        dem = dem.imshow(raster[0,:,:])#, vmin=-1.5, vmax=3)
         
         col = col.imshow(raster[1,:,:], cmap="gray")
         
@@ -267,9 +267,9 @@ def view_u(train, trained_model, args, tile_index = None):
     
     ## running the model
     # encoder alt
-    a1 = model.sc2_mns(model.c1_mns(alt))
+    a1 = model.sc2_dem(model.c1_dem(alt))
     #level 2
-    a2= model.sc4_mns(model.c3_mns(a1))
+    a2= model.sc4_dem(model.c3_dem(a1))
     
     #encoder
     #level 1
@@ -459,8 +459,8 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
       # visualising the ground truth
       if gts:
           
-          # sub rasters for mns and radiometry
-          diff_mns = ((alt1 - alt2)**2)**0.5
+          # sub rasters for dem and radiometry
+          diff_dem = ((alt1 - alt2)**2)**0.5
           diff_radio = ((rad1 - rad2)**2)**0.5
           
           # colors for the labels
@@ -527,11 +527,11 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
               pred_change = pred_map[data_index]
               
               # removing no data values
-              diff_mns = diff_mns.detach().cpu().numpy().squeeze()[data_index]
+              diff_dem = diff_dem.detach().cpu().numpy().squeeze()[data_index]
               diff_radio = diff_radio.detach().cpu().numpy().squeeze()[data_index]
               
               ## getting roc for the baseline
-              fpr_alt, tpr_alt, thresholds = metrics.roc_curve(cmap_gt, diff_mns)
+              fpr_alt, tpr_alt, thresholds = metrics.roc_curve(cmap_gt, diff_dem)
               fpr_rad, tpr_rad, thresholds = metrics.roc_curve(cmap_gt, diff_radio)
               
               # getting roc values
@@ -542,7 +542,7 @@ def change_detection(rast1, rast2, trained_model, args, gts = False, visualizati
               ax = fig.add_subplot(3, 7, 8, aspect=1)
               ax.set(title='ROC curve, AUC: %1.2f' % (auc))
               ax.plot(fpr, tpr, linestyle='--', label="model")
-              ax.plot(fpr_alt, tpr_alt, linestyle=':', label="mns")
+              ax.plot(fpr_alt, tpr_alt, linestyle=':', label="dem")
               ax.plot(fpr_rad, tpr_rad, linestyle='-', label="radio")
               ax.legend()
              
@@ -1035,10 +1035,10 @@ def prepare_data_metrics(gt_change, index_data):
     """
     
     ## extracting the altitude
-    # load list of mns
+    # load list of dem
     list_data = []
     
-    # loading the mns
+    # loading the dem
     for year in gt_change:
         list_data += [rast[index_data,:,:] for rast in gt_change[year]]
         
@@ -1191,8 +1191,8 @@ def change_detection_baseline(rast1, rast2, years, args, gts = False, visualizat
       # visualising the ground truth
       if gts:
           
-          # sub rasters for mns and radiometry
-          diff_mns = ((alt1 - alt2)**2)**0.5
+          # sub rasters for dem and radiometry
+          diff_dem = ((alt1 - alt2)**2)**0.5
           diff_radio = ((rad1 - rad2)**2)**0.5
           
           # colors for the labels
@@ -1258,11 +1258,11 @@ def change_detection_baseline(rast1, rast2, years, args, gts = False, visualizat
               pred_change = pred_map[data_index]
               
               # removing no data values
-              diff_mns = diff_mns.detach().cpu().numpy().squeeze()[data_index]
+              diff_dem = diff_dem.detach().cpu().numpy().squeeze()[data_index]
               diff_radio = diff_radio.detach().cpu().numpy().squeeze()[data_index]
               
               ## getting roc for the baseline
-              fpr_alt, tpr_alt, thresholds = metrics.roc_curve(cmap_gt, diff_mns)
+              fpr_alt, tpr_alt, thresholds = metrics.roc_curve(cmap_gt, diff_dem)
               fpr_rad, tpr_rad, thresholds = metrics.roc_curve(cmap_gt, diff_radio)
               
               # getting roc values
@@ -1326,7 +1326,7 @@ def MI_raster(raster, model, visu=False):
     values_rad_cut = np.quantile(rad, [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9])
     
     # binning the data with the quantiles
-    mns_discrete = np.digitize(dem,bins=values_dem_cut)
+    dem_discrete = np.digitize(dem,bins=values_dem_cut)
     rad_discrete = np.digitize(rad,bins=values_rad_cut)
     
     # lists to store class related indexes
@@ -1341,10 +1341,10 @@ def MI_raster(raster, model, visu=False):
         
         ## class related data for DEM
         # boolean per class
-        class_idx = mns_discrete == i
+        class_idx = dem_discrete == i
         classes_dem_idx.append(class_idx)
         # number of sample of the class
-        nb_classes_dem.append(np.count_nonzero(mns_discrete == i))
+        nb_classes_dem.append(np.count_nonzero(dem_discrete == i))
         
         # same opertation, for the radiometry
         class_idx = rad_discrete == i
@@ -1352,10 +1352,10 @@ def MI_raster(raster, model, visu=False):
         nb_classes_rad.append(np.count_nonzero(rad_discrete == i))
     
     # calculating the NMI for DEM
-    mi_mns = fun_metrics.NMI_continuous_discrete(mns_discrete, code,
+    mi_dem = fun_metrics.NMI_continuous_discrete(dem_discrete, code,
                                         nb_classes_dem, list(range(10)), classes_dem_idx)
     print("MI on the DEM:")
-    print("%1.2f" % (mi_mns))
+    print("%1.2f" % (mi_dem))
     
    
     # calculating the NMI for rad
@@ -1496,11 +1496,12 @@ def tsne_visualization(raster, model):
     rad_vis.imshow(raster[2,:,:], cmap="gray")
     rad_vis.axis("off")
     labels.imshow(raster[0,:,:])
-    rad_vis.axis("off")
+    labels.axis("off")
     
     for bool_list in bools_class:
         scat.scatter(data_visu[:,0][bool_list], data_visu[:,1][bool_list])
-
+    
+    plt.show()
 
 def scatter_aleo(radio, pred, aleo):
     """
@@ -1527,5 +1528,3 @@ def scatter_aleo(radio, pred, aleo):
     plt.ylabel('variance (log)')
     plt.plot(MSE, m*MSE + b)
     plt.show()
-
-

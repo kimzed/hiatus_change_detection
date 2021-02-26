@@ -112,7 +112,7 @@ print(
 """
 
 We now stack up the rasters into 2*128*128 dimension rasters and normalize them
-using z-scores and removing minimum altitude for mns
+using z-scores and removing minimum altitude for dem
 
 """)
 
@@ -120,7 +120,7 @@ using z-scores and removing minimum altitude for mns
 # normalizing
 s_rasters_clipped = {}
 
-# list to extract all the mns rasters
+# list to extract all the dem rasters
 rasters_alt = []
 
 for year in rasters_clipped:
@@ -196,6 +196,7 @@ gt = np.stack(gt)
 gt = gt.reshape(gt.shape[0]*gt.shape[1], gt.shape[2])
 gt = list(gt)
     
+    
 
 print(
 """
@@ -220,7 +221,7 @@ for year in s_rasters_clipped:
         save(file+str(i)+'.npy', np_mat)
         
         # saving the gt
-        save(file+'gt_'+str(ind_gt)+'.npy', gt[ind_gt])
+        save(file+'gt_'+str(i)+'.npy', gt[ind_gt])
         
         ind_gt += 1
 

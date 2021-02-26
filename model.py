@@ -72,10 +72,10 @@ class Encoder(nn.Module):
     self.c5 = nn.Sequential(nn.Conv2d(encoder_conv_width[3],encoder_conv_width[4],kernel_size=3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[4]),nn.LeakyReLU(True))
    
     # network for the altitude
-    self.c1_mns = nn.Sequential(nn.Conv2d(1, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
-    self.sc2_mns = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],kernel_size=4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
-    self.c3_mns = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],kernel_size=3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.LeakyReLU(True))
-    self.sc4_mns = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],kernel_size=4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
+    self.c1_dem = nn.Sequential(nn.Conv2d(1, encoder_conv_width[0],3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[0]),nn.LeakyReLU(True))
+    self.sc2_dem = nn.Sequential(nn.Conv2d(encoder_conv_width[0],encoder_conv_width[1],kernel_size=4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[1]),nn.LeakyReLU(True))
+    self.c3_dem = nn.Sequential(nn.Conv2d(encoder_conv_width[1],encoder_conv_width[2],kernel_size=3,padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[2]),nn.LeakyReLU(True))
+    self.sc4_dem = nn.Sequential(nn.Conv2d(encoder_conv_width[2],encoder_conv_width[3],kernel_size=4, stride=2, padding=1, padding_mode='reflect'),nn.BatchNorm2d(encoder_conv_width[3]),nn.LeakyReLU(True))
 
     #weight initialization
     self.c1_rad[0].apply(self.init_weights)
@@ -85,10 +85,10 @@ class Encoder(nn.Module):
     self.c5[0].apply(self.init_weights)
     
     # for the DEM part
-    self.c1_mns[0].apply(self.init_weights)
-    self.sc2_mns[0].apply(self.init_weights)
-    self.c3_mns[0].apply(self.init_weights)
-    self.sc4_mns[0].apply(self.init_weights)
+    self.c1_dem[0].apply(self.init_weights)
+    self.sc2_dem[0].apply(self.init_weights)
+    self.c3_dem[0].apply(self.init_weights)
+    self.sc4_dem[0].apply(self.init_weights)
     
     if args.cuda:
         # running the model on gpu
@@ -113,12 +113,12 @@ class Encoder(nn.Module):
     #encoder altitude
     #level 1
     if args.rad_input:
-        a1 = self.sc2_mns(self.c1_mns(alt))
+        a1 = self.sc2_dem(self.c1_dem(alt))
     else:
-        a1 = self.sc2_mns(self.c1_mns(rad))
+        a1 = self.sc2_dem(self.c1_dem(rad))
         
     #level 2
-    a2= self.sc4_mns(self.c3_mns(a1))
+    a2= self.sc4_dem(self.c3_dem(a1))
     
     #encoder visual
     #level 1
@@ -205,30 +205,17 @@ class Decoder(nn.Module):
         self.c15[0].apply(self.init_defiance)
         self.defi.apply(self.init_defiance_final)
     
-# =============================================================================
-#     self.final.weight.data.fill_(1)
-# =============================================================================
-    
     # running the model on gpu
     if args.cuda:
         self.cuda()
     
   def init_weights(self,layer): #gaussian init for the conv layers
-    #nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity="leaky_relu")
-    nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='leaky_relu')
+      nn.init.kaiming_normal_(layer.weight, mode='fan_out', nonlinearity='leaky_relu')
     
   def init_defiance(self, layer):
-# =============================================================================
-#       layer.weight.data.normal_(0, 0.001)
-#       layer.bias.data.fill_(0) 
-# =============================================================================
       layer.weight.data.normal_(0, 0.000001)
       layer.bias.data.fill_(0) 
-# =============================================================================
-#       layer.weight.data.fill_(0.001) 
-#       
-# =============================================================================
-          
+      
   def init_defiance_final(self, layer):
       layer.weight.data.normal_(0, 0.000001)
       layer.bias.data.fill_(torch.tensor(0.5413)) 
@@ -245,22 +232,16 @@ class Decoder(nn.Module):
     #decoder
     #level 2
     y4 = nn.Upsample(scale_factor=2, mode='bilinear')(self.c6(input))
-# =============================================================================
-#     y4 = self.t1(self.c6(input))
-# =============================================================================
     y3 = self.c8(self.c7(y4))
     
-    #level 1       
-# =============================================================================
-#     y2 = self.c9(self.t2(y3))
-# =============================================================================
+    #level 1   
     y2 = self.c9(nn.Upsample(scale_factor=2, mode='bilinear')(y3))
     y1 = self.c10(y2)
     
     out = self.final(y1)
     
     if not args.data_fusion:
-        # adding a matrix of zeros for mns
+        # adding a matrix of zeros for dem
         none_mat = torch.zeros(out.shape[0], 1, out.shape[2], out.shape[3])
         none_mat = none_mat.cuda()
         
@@ -271,7 +252,6 @@ class Decoder(nn.Module):
     
     if args.defiance:
         # including defiance
-        
         defiance_rad = self.c15(self.c14(self.c13(self.c12(self.c11(y1)))))
         aleo_final = torch.nn.Softplus()(self.defi(defiance_rad))
         out = torch.cat((out[:,0:2,:,:], aleo_final), 1)
@@ -314,7 +294,7 @@ class Discriminator(nn.Module):
     self.c3 = nn.Sequential(nn.Conv2d(args.disc_width[5], args.disc_width[6], 3, padding=1, padding_mode='reflect'),nn.BatchNorm2d(16),nn.ReLU(True))
     
     # FC layers
-    self.lin = nn.Sequential(nn.Linear(args.disc_width[7], args.disc_width[8]),nn.BatchNorm1d(16),nn.ReLU(True))
+    self.lin = nn.Sequential(nn.Linear(args.disc_width[7], args.disc_width[8]),nn.BatchNorm1d(args.disc_width[8]),nn.ReLU(True))
     self.lin2 = nn.Linear(args.disc_width[8], 5)
     
     # initiating weights

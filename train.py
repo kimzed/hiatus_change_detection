@@ -60,8 +60,75 @@ def train(model, args, datasets):
     # adding noise
     tiles_noise = tiles + noise_tens
     
-    # ============forward auto-encoder===========
+   
+    # applying arg max on labels for cross entropy
+    _, labels = labels.max(dim=1)
     
+    # ============discriminator===========
+    
+    if args.adversarial:
+        
+        # ============forward===========
+        
+        #pred_year = discr(code.detach())
+        
+        code = model.encoder(tiles_noise, args)
+        pred_year = model.discr(code, args)
+        
+        # ============loss===========
+        
+        # applying arg max for checking accuracy
+        _, pred_max = pred_year.max(dim=1)
+        
+        ## applying loss function for the discriminator and optimizing the weights
+        loss_disc = loss_fun.CrossEntropy(pred_year, labels)
+        
+        
+        # checking the accuracy
+        matrix_accu = pred_max == labels
+        matrix_accu_f = matrix_accu.flatten()
+        matrix_accu_f = matrix_accu_f.cpu().detach().numpy()
+        nb_true = np.count_nonzero(matrix_accu_f == True)
+        accu_discr += nb_true / len(matrix_accu_f)
+        
+        # ============backward===========
+        
+        # optimizing the discriminator. optional: training the encoder as well
+        model.opti_D.zero_grad()
+        #model.opti_AE.zero_grad()
+        loss_disc.backward(retain_graph=True)
+        
+        #we clip the gradient at norm 1 this helps learning faster
+        if args.grad_clip:
+            for p in model.discr.parameters():
+                p.register_hook(lambda grad: torch.clamp(grad, -1, 1))
+                
+        model.opti_D.step()
+        model.opti_AE.zero_grad()
+        model.opti_AE.step()
+    
+        # saving the loss
+        loss_disc_val.add(loss_disc.item())
+        
+        # putting an adversarial training on the encoder
+        if args.opti_adversarial_encoder:
+            code = model.encoder(tiles, args)
+            pred_year = model.discr(code, args)
+            loss_disc = loss_fun.CrossEntropy(pred_year, labels)
+            loss_disc_adv = loss_disc
+            model.opti_AE.zero_grad()
+            loss_disc_adv.backward()
+            model.opti_AE.step()
+        
+        #averaging accuracy
+        accufin = accu_discr/(len(loader))
+        
+        
+        
+    
+    # ============auto_encoder optimization===========
+    
+    # ============forward auto-encoder===========
     # compute the prediction
     pred = model.predict(tiles_noise, args)
     code = model.encoder(tiles_noise, args)
@@ -95,70 +162,6 @@ def train(model, args, datasets):
         loss_alt = loss_fun.MeanSquareError(pred_alt, tiles_alt)
         loss_rad = loss_fun.MeanSquareError(pred_rad, tiles_rad)
     
-    # applying arg max on labels for cross entropy
-    _, labels = labels.max(dim=1)
-    
-    # ============discriminator===========
-    
-    if args.adversarial:
-        
-        # ============forward===========
-        
-        #pred_year = discr(code.detach())
-        pred_year = model.discr(code, args)
-        
-        # ============loss===========
-        
-        # applying arg max for checking accuracy
-        _, pred_max = pred_year.max(dim=1)
-        
-        ## applying loss function for the discriminator and optimizing the weights
-        loss_disc = loss_fun.CrossEntropy(pred_year, labels)
-        
-        
-            
-        # checking the accuracy
-        matrix_accu = pred_max == labels
-        matrix_accu_f = matrix_accu.flatten()
-        matrix_accu_f = matrix_accu_f.cpu().detach().numpy()
-        nb_true = np.count_nonzero(matrix_accu_f == True)
-        accu_discr += nb_true / len(matrix_accu_f)
-        
-        # ============backward===========
-        
-        # optimizing the discriminator. optional: training the encoder as well
-        model.opti_D.zero_grad()
-        #model.opti_AE.zero_grad()
-        loss_disc.backward(retain_graph=True)
-        
-        #we clip the gradient at norm 1 this helps learning faster
-        if args.grad_clip:
-            for p in model.discr.parameters():
-                p.register_hook(lambda grad: torch.clamp(grad, -1, 1))
-                
-        model.opti_D.step()
-        #model.opti_AE.step()
-        
-        # saving the loss
-        loss_disc_val.add(loss_disc.item())
-        
-        # putting an adversarial training on the encoder
-        if args.opti_adversarial_encoder:
-            code = model.encoder(tiles, args)
-            pred_year = model.discr(code, args)
-            loss_disc = loss_fun.CrossEntropy(pred_year, labels)
-            loss_disc_adv = -loss_disc
-            model.opti_E.zero_grad()
-            loss_disc_adv.backward()
-            model.opti_E.step()
-        
-        #averaging accuracy
-        accufin = accu_discr/(len(loader)*args.nb_trains_discr)
-        
-        
-        
-    
-    # ============auto_encoder optimization===========
     
     if args.auto_encod:
         
@@ -171,7 +174,7 @@ def train(model, args, datasets):
         # ============loss==========
         
         if args.adversarial and args.data_fusion:
-            loss =  loss_rad + loss_alt -  args.disc_loss_weight * loss_disc   
+            loss =  loss_rad + loss_alt #-  args.disc_loss_weight * loss_disc   
         elif args.data_fusion:
             loss =  loss_rad + loss_alt
         elif args.adversarial and args.rad_input:
@@ -267,7 +270,6 @@ def train_full(args, datasets, gt_change, dict_model=None):
                                                                               args,
                                                                               datasets)
     
-        
     if args.test_auc:
         ## checking the auc
         model.encoder.eval()

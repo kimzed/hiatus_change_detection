@@ -16,15 +16,18 @@ import random
 # for manual visualisation
 from rasterio.plot import show
 
+
+
+# putting the right work directory
+os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
+
+
 # importing our functions
 import utils as fun
 import train as train
 import evaluate as eval_model
 import metrics as fun_metrics
 
-
-# putting the right work directory
-os.chdir("/home/adminlocal/Bureau/GIT/hiatus_change_detection")
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -97,7 +100,7 @@ print(
 Visualizing change detection on the ground truth
 """)
 
-for i in range(30,35):
+for i in range(30,40):
     # loading the raster
     nb = i
     rast1 = gt_change["1954"][nb][None,1:,:,:]
@@ -120,7 +123,7 @@ Performing normalized mutual information for continuous variables
 
 # load the data and the baselines
 codes_clean, labels_clean = fun.prepare_codes_metrics(gt_change, args, trained_model)
-mns_clean = fun.prepare_data_metrics(gt_change, 1)
+dem_clean = fun.prepare_data_metrics(gt_change, 1)
 rad_clean = fun.prepare_data_metrics(gt_change, 2)
 
 ## getting the number of pixels per classes
@@ -141,8 +144,8 @@ classes_idx = [buildings_idx, roads_idx, fields_idx]
 # calculating the NMI for the codes
 fun_metrics.NMI_continuous_discrete(labels_clean, codes_clean,
                                     nb_classes, [1,2,3], classes_idx)
-# calculating the NMI for the mns
-fun_metrics.NMI_continuous_discrete(labels_clean, mns_clean[:,None],
+# calculating the NMI for the dem
+fun_metrics.NMI_continuous_discrete(labels_clean, dem_clean[:,None],
                                     nb_classes, [1,2,3], classes_idx)
 
 # calculating the NMI for the rad
@@ -150,7 +153,7 @@ fun_metrics.NMI_continuous_discrete(labels_clean, rad_clean[:,None],
                                     nb_classes, [1,2,3], classes_idx)
 
 # calculating the NMI for the both inputs
-dem_rad = np.concatenate((rad_clean[:,None], mns_clean[:,None]), axis=1)
+dem_rad = np.concatenate((rad_clean[:,None], dem_clean[:,None]), axis=1)
 fun_metrics.NMI_continuous_discrete(labels_clean, dem_rad,
                                     nb_classes, [1,2,3], classes_idx)
 
@@ -164,8 +167,8 @@ Making a linear SVM
 conf_mat_model, class_report_model, scores_cv = fun_metrics.svm_accuracy_estimation(codes_clean,
                                                                          labels_clean)
 
-## linear svm with the mns
-conf_mat_mns, class_report_mns, scores_cv = fun_metrics.svm_accuracy_estimation(mns_clean,
+## linear svm with the dem
+conf_mat_dem, class_report_dem, scores_cv = fun_metrics.svm_accuracy_estimation(dem_clean,
                                                                          labels_clean)
 
 ## linear svm with the rad
@@ -187,19 +190,19 @@ for year in gt_change:
 
 # data for train
 codes_train, labels_train = fun.prepare_codes_metrics(gt_change_train, args, trained_model)
-mns_train = fun.prepare_data_metrics(gt_change_train, 1)
+dem_train = fun.prepare_data_metrics(gt_change_train, 1)
 rad_train= fun.prepare_data_metrics(gt_change_train, 2)
 
 # data for test
 codes_test, labels_test = fun.prepare_codes_metrics(gt_change_test, args, trained_model)
-mns_test = fun.prepare_data_metrics(gt_change_test, 1)
+dem_test = fun.prepare_data_metrics(gt_change_test, 1)
 rad_test = fun.prepare_data_metrics(gt_change_test, 2)
 
 ## linear svm with the model
 conf_mat_model, class_report_model, scores_cv_model = fun_metrics.svm_accuracy_estimation_2(codes_train, codes_test, labels_train, labels_test, cv=False)
 
-## linear svm with the mns
-conf_mat_mns, class_report_mns, scores_cv_mns = fun_metrics.svm_accuracy_estimation_2(mns_train, mns_test, labels_train, labels_test, cv=False)
+## linear svm with the dem
+conf_mat_dem, class_report_dem, scores_cv_dem = fun_metrics.svm_accuracy_estimation_2(dem_train, dem_test, labels_train, labels_test, cv=False)
 
 ## linear svm with the rad
 conf_mat_rad, class_report_rad, scores_cv_rad = fun_metrics.svm_accuracy_estimation_2(rad_train, rad_test, labels_train, labels_test, cv=False)
@@ -217,19 +220,19 @@ for year in gt_change:
 
 # data for train
 codes_train, labels_train = fun.prepare_codes_metrics(gt_change_train, args, trained_model)
-mns_train = fun.prepare_data_metrics(gt_change_train, 1)
+dem_train = fun.prepare_data_metrics(gt_change_train, 1)
 rad_train= fun.prepare_data_metrics(gt_change_train, 2)
 
 # data for test
 codes_test, labels_test = fun.prepare_codes_metrics(gt_change_test, args, trained_model)
-mns_test = fun.prepare_data_metrics(gt_change_test, 1)
+dem_test = fun.prepare_data_metrics(gt_change_test, 1)
 rad_test = fun.prepare_data_metrics(gt_change_test, 2)
 
 ## linear svm with the model
 conf_mat_model, class_report_model, scores_cv_model = fun_metrics.svm_accuracy_estimation_2(codes_train, codes_test, labels_train, labels_test, cv=False)
 
-## linear svm with the mns
-conf_mat_mns, class_report_mns, scores_cv_mns = fun_metrics.svm_accuracy_estimation_2(mns_train, mns_test, labels_train, labels_test, cv=False)
+## linear svm with the dem
+conf_mat_dem, class_report_dem, scores_cv_dem = fun_metrics.svm_accuracy_estimation_2(dem_train, dem_test, labels_train, labels_test, cv=False)
 
 ## linear svm with the rad
 conf_mat_rad, class_report_rad, scores_cv_rad = fun_metrics.svm_accuracy_estimation_2(rad_train, rad_test, labels_train, labels_test, cv=False)
@@ -270,10 +273,10 @@ train_data, gt_change, numpy_rasters = frejus_dataset.get_datasets(["1954","1966
 # loading the args of the pre-trained model
 dict_model = torch.load("evaluation_models/pre_trained_baseline")
 args = dict_model["args"]
-args.rad_input=1
 
 # setting the number of epochs
-args.epochs = 20
+args.epochs = 5
+args.save = 0
 
 # getting th year for the first rasters
 for year1 in years:
@@ -295,8 +298,8 @@ for year1 in years:
             numpy_rasters[year2] = [fun.torch_raster(raster, cuda=False) for raster in numpy_rasters[year2]]
             
             
-            # training the model
-            trained_model = train.train_full_alternative_model(args, numpy_rasters, dict_model)
+            # training and saving the model
+            _ = train.train_full_alternative_model(args, numpy_rasters, dict_model)
             
     
 ## evaluating the model
@@ -349,31 +352,31 @@ for year in gt_change:
     
 # data for train
 codes_train, labels_train = fun.prepare_codes_metrics(gt_change_train, args, trained_model)
-mns_train = fun.prepare_data_metrics(gt_change_train, 1)
+dem_train = fun.prepare_data_metrics(gt_change_train, 1)
 rad_train= fun.prepare_data_metrics(gt_change_train, 2)
 
 # data for test
 codes_test, labels_test = fun.prepare_codes_metrics(gt_change_test, args, trained_model)
-mns_test = fun.prepare_data_metrics(gt_change_test, 1)
+dem_test = fun.prepare_data_metrics(gt_change_test, 1)
 rad_test = fun.prepare_data_metrics(gt_change_test, 2)
 
-# training the model for mns
-lr_mns = LinearRegression()
-lr_mns.fit(codes_train, mns_train)      
-pred_mns = lr_mns.predict(codes_test)  
-mae_mns = sum(abs(pred_mns - mns_test)) / mns_test.shape[0]
-r2_mns = sklearn.metrics.r2_score(mns_test, pred_mns)
+# training the model for dem
+lr_dem = LinearRegression()
+lr_dem.fit(codes_train, dem_train)      
+pred_dem = lr_dem.predict(codes_test)  
+mae_dem = sum(abs(pred_dem - dem_test)) / dem_test.shape[0]
+r2_dem = sklearn.metrics.r2_score(dem_test, pred_dem)
 
-#print(mae_mns)
-print("R2 for mns is %1.2f" % (r2_mns))
+#print(mae_dem)
+print("R2 for dem is %1.2f" % (r2_dem))
 print("\n")
-print(abs(lr_mns.coef_).mean())
+print(abs(lr_dem.coef_).mean())
 
 # training the model for rad
 lr_rad = LinearRegression()
 lr_rad.fit(codes_train, rad_train)      
 pred_rad = lr_rad.predict(codes_test)  
-mae_rad = sum(abs(pred_rad - rad_test)) / mns_test.shape[0]
+mae_rad = sum(abs(pred_rad - rad_test)) / dem_test.shape[0]
 r2_rad = sklearn.metrics.r2_score(rad_test, pred_rad)
 
 #print(mae_rad)
@@ -384,16 +387,16 @@ print(abs(lr_rad.coef_).mean())
 ### computing the MI
 # adding test data to train data
 codes_train = np.concatenate((codes_train, codes_test), axis=0)
-mns_train = np.concatenate((mns_train, mns_test), axis=None)
+dem_train = np.concatenate((dem_train, dem_test), axis=None)
 rad_train = np.concatenate((rad_train, rad_test), axis=None)
 
 ## binning the data
 # getting the value of the quantiles
-values_dem_cut = np.quantile(mns_train, [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9])
+values_dem_cut = np.quantile(dem_train, [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9])
 values_rad_cut = np.quantile(rad_train, [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9])
 
 # binning the data with the quantiles
-mns_discrete = np.digitize(mns_train,bins=values_dem_cut)
+dem_discrete = np.digitize(dem_train,bins=values_dem_cut)
 rad_discrete = np.digitize(rad_train,bins=values_rad_cut)
 
 # lists to store class related indexes
@@ -408,10 +411,10 @@ for i in range(10):
     
     ## class related data for DEM
     # boolean per class
-    class_idx = mns_discrete == i
+    class_idx = dem_discrete == i
     classes_dem_idx.append(class_idx)
     # number of sample of the class
-    nb_classes_dem.append(np.count_nonzero(mns_discrete == i))
+    nb_classes_dem.append(np.count_nonzero(dem_discrete == i))
     
     # same opertation, for the radiometry
     class_idx = rad_discrete == i
@@ -421,9 +424,9 @@ for i in range(10):
     
 
 # calculating the NMI for DEM
-mi_mns = fun_metrics.NMI_continuous_discrete(mns_discrete, codes_train,
+mi_dem = fun_metrics.NMI_continuous_discrete(dem_discrete, codes_train,
                                     nb_classes_dem, list(range(10)), classes_dem_idx)
-print("%1.2f" % (mi_mns))
+print("%1.2f" % (mi_dem))
 
 # calculating the NMI for rad
 mi_rad = fun_metrics.NMI_continuous_discrete(rad_discrete, codes_train,
@@ -530,9 +533,11 @@ fun.view_u(datasets, trained_model, args, random.randint(0, 900))
 # visualizing embedding inside the model
 nb = random.randint(0, 900)
 print(nb)
-fun.view_u(numpy_rasters["1966"], trained_model, args, nb)
+
+fun.view_u(numpy_rasters["1989"], trained_model, args, nb)
 fun.view_u(numpy_rasters["1970"], trained_model, args, nb)
 
+137
 
 print(
     """
@@ -549,7 +554,3 @@ rast2 = numpy_rasters["1989"][i][None,:,:,:]
 # computing change raster
 cmap, dccode, code1, code2 = fun.change_detection(rast1, rast2, trained_model, args,
                                                   threshold=threshold, visualization=True)
-
-
-
-    

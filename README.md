@@ -1,8 +1,8 @@
 # Unsupervized Temporal Domain Adaptation for Change Detection in Historic 3D Data Time-Series
 
-This is the PyTorch implementation of a change detection project in the Lastig lab from the IGN.
+Welcome to the PyTorch implementation of the change detection project conducted at the Lastig lab, IGN. This project uses advanced machine learning techniques to detect temporal changes in the landscape of Fréjus, France, from aerial photos throughout the 20th century.
 
-By Cédric BARON
+Author: Cédric BARON
 
 # Code structure
 
@@ -34,6 +34,10 @@ To train a model with specific settings use:
 
 ```python main.py --epochs 25 --lr 0.025```
 
+Note: Check main.py for a full list of command-line arguments and their descriptions.
 
+# Evaluation
+
+Models are stored in ./evaluation_models/. To evaluate a specific model, enable the evaluation flag in main.py and specify the model's name.
 
 
